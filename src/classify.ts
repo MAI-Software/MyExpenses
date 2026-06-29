@@ -4,6 +4,15 @@ import type { Category } from "./types";
 // Primera categoría que coincida gana (orden = prioridad).
 const RULES: { category: Category; keywords: string[] }[] = [
   {
+    // Plataformas de reparto primero: ganan a Restauración/Compras.
+    category: "Comida a domicilio",
+    keywords: [
+      "glovo", "just eat", "justeat", "just-eat", "uber eats", "ubereats",
+      "uber-eats", "deliveroo", "rappi", "a domicilio", "domicilios",
+      "la nevera roja", "delivery", "pedido a domicilio", "reparto",
+    ],
+  },
+  {
     category: "Alimentación",
     keywords: [
       "mercadona", "carrefour", "lidl", "aldi", "dia", "eroski", "consum",
@@ -75,6 +84,7 @@ const RULES: { category: Category; keywords: string[] }[] = [
 export const CATEGORY_COLORS: Record<Category, string> = {
   "Alimentación": "#5eead4",
   "Restauración": "#f5a97f",
+  "Comida a domicilio": "#ed8796",
   "Transporte": "#8aadf4",
   "Compras": "#c6a0f6",
   "Salud": "#a6da95",

@@ -1,6 +1,7 @@
 export const CATEGORIES = [
   "Alimentación",
   "Restauración",
+  "Comida a domicilio",
   "Transporte",
   "Compras",
   "Salud",
@@ -11,6 +12,34 @@ export const CATEGORIES = [
 ] as const;
 
 export type Category = (typeof CATEGORIES)[number];
+
+export type Frequency = "monthly" | "yearly";
+
+/** Topes de gasto: global mensual + por categoría. */
+export interface Budget {
+  monthlyCap: number | null;
+  categoryCaps: Partial<Record<Category, number>>;
+  currency: string;
+}
+
+/** Gasto fijo / recurrente (Netflix, alquiler, seguro…). */
+export interface Recurring {
+  id: string;
+  name: string;
+  amount: number;
+  currency: string;
+  category: Category;
+  frequency: Frequency;
+  dayOfMonth: number; // 1-31 (se ajusta a meses cortos)
+  month?: number;     // 0-11, sólo si frequency = "yearly"
+  active: boolean;
+  createdAt: number;
+}
+
+export interface Settings {
+  notificationsEnabled: boolean;
+  notifyDaysBefore: number; // 0 = el mismo día, 1 = un día antes…
+}
 
 export interface Expense {
   id: string;

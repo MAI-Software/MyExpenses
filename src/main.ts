@@ -1,13 +1,43 @@
 import "./style.css";
-import { CATEGORIES, type Category, type Expense, type ParsedReceipt } from "./types";
+import {
+  CATEGORIES,
+  type Budget,
+  type Category,
+  type Expense,
+  type Frequency,
+  type ParsedReceipt,
+  type Recurring,
+  type Settings,
+} from "./types";
 import { CATEGORY_COLORS } from "./classify";
 import { icon, CATEGORY_ICON } from "./icons";
 import { runOcr } from "./ocr";
 import { parseReceipt } from "./parser";
-import { addExpense, deleteExpense, loadExpenses, newId } from "./store";
+import {
+  addExpense,
+  deleteExpense,
+  loadBudget,
+  loadExpenses,
+  loadRecurring,
+  loadSettings,
+  newId,
+  saveBudget,
+  saveRecurring,
+  saveSettings,
+} from "./store";
 import { exportToXlsx } from "./exportXlsx";
+import { donut, type DonutSegment } from "./donut";
+import {
+  checkAndNotify,
+  daysUntil,
+  nextChargeDate,
+  notificationPermission,
+  notificationsSupported,
+  requestNotificationPermission,
+  whenLabel,
+} from "./notify";
 
-type Tab = "capturar" | "gastos" | "historial" | "info";
+type Tab = "capturar" | "gastos" | "estrategia" | "historial" | "info";
 
 const MONTHS = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -23,6 +53,9 @@ interface State {
   progressText: string;
   error: string | null;
   histYear: number | null;
+  budget: Budget;
+  recurring: Recurring[];
+  settings: Settings;
 }
 
 const state: State = {
@@ -34,6 +67,9 @@ const state: State = {
   progressText: "",
   error: null,
   histYear: null,
+  budget: loadBudget(),
+  recurring: loadRecurring(),
+  settings: loadSettings(),
 };
 
 const app = document.getElementById("app")!;
@@ -74,6 +110,63 @@ function countUp(node: HTMLElement, to: number, currency: string) {
     if (t < 1) requestAnimationFrame(step);
   }
   requestAnimationFrame(step);
+}
+
+function ymPrefix(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function expensesInMonth(prefix: string): Expense[] {
+  return state.expenses.filter((e) => e.date.startsWith(prefix));
+}
+
+// Gasto agregado por categoría → segmentos para el donut (orden por valor desc).
+function catSegments(list: Expense[]): DonutSegment[] {
+  const by = new Map<Category, number>();
+  for (const e of list) by.set(e.category, (by.get(e.category) ?? 0) + e.total);
+  return [...by.entries()].map(([c, v]) => ({ label: c, value: v, color: CATEGORY_COLORS[c] }));
+}
+
+// Barra de progreso de un tope de gasto, con estados ok / cerca / pasado.
+function capBar(label: string, spent: number, cap: number, currency: string): HTMLElement {
+  const ratio = cap > 0 ? spent / cap : 0;
+  const over = spent > cap;
+  const near = !over && ratio >= 0.8;
+  const stateClass = over ? "over" : near ? "near" : "ok";
+
+  const row = el("div", { class: `cap-row ${stateClass}` });
+  row.append(
+    el("div", { class: "cap-head" }, [
+      el("span", { class: "cap-label" }, [label]),
+      el("span", { class: "cap-nums" }, [`${money(spent, currency)} / ${money(cap, currency)}`]),
+    ])
+  );
+  const bar = el("div", { class: "cap-bar" });
+  bar.append(el("div", { class: "cap-fill", style: `width:${Math.min(100, ratio * 100)}%` }));
+  row.append(bar);
+
+  if (over) {
+    row.append(el("div", { class: "cap-note over" }, [
+      icon("alert", 15),
+      el("span", {}, [`Te has pasado ${money(spent - cap, currency)}`]),
+    ]));
+  } else {
+    row.append(el("div", { class: "cap-note" }, [`Te quedan ${money(cap - spent, currency)}`]));
+  }
+  return row;
+}
+
+// Interruptor accesible (role=switch).
+function switchToggle(checked: boolean, label: string, onChange: (v: boolean) => void): HTMLElement {
+  const btn = el("button", {
+    class: "switch" + (checked ? " on" : ""),
+    role: "switch",
+    "aria-checked": checked ? "true" : "false",
+    "aria-label": label,
+  });
+  btn.append(el("span", { class: "switch-knob" }));
+  btn.addEventListener("click", () => onChange(!checked));
+  return btn;
 }
 
 // ---------- OCR flow ----------
@@ -169,6 +262,28 @@ function viewCapturar(): HTMLElement {
     ])
   );
   countUp(amt, monthTotal, cur);
+
+  // ----- reparto del mes (donut) + tope global -----
+  if (monthExp.length > 0) {
+    wrap.append(
+      el("div", { class: "card chart-card" }, [
+        el("div", { class: "section-title" }, ["Reparto del mes"]),
+        donut(catSegments(monthExp), {
+          size: 176, thickness: 20,
+          centerLabel: money(monthTotal, cur), centerSub: MONTHS[m],
+          fmt: (v) => money(v, cur),
+        }),
+      ])
+    );
+  }
+  if (state.budget.monthlyCap && state.budget.monthlyCap > 0) {
+    wrap.append(
+      el("div", { class: "card" }, [
+        el("div", { class: "section-title" }, ["Tope mensual"]),
+        capBar("Gasto total del mes", monthTotal, state.budget.monthlyCap, cur),
+      ])
+    );
+  }
 
   if (state.error) {
     wrap.append(
@@ -439,6 +554,19 @@ function viewHistorial(): HTMLElement {
     ])
   );
 
+  if (ofYear.length) {
+    wrap.append(
+      el("div", { class: "card chart-card" }, [
+        el("div", { class: "section-title" }, [`Reparto de ${year}`]),
+        donut(catSegments(ofYear), {
+          size: 200, thickness: 24,
+          centerLabel: money(yearTotal, cur), centerSub: String(year),
+          fmt: (v) => money(v, cur),
+        }),
+      ])
+    );
+  }
+
   let idx = 0;
   [...byMonth.keys()].sort((a, b) => b - a).forEach((m) => {
     const monthExp = byMonth.get(m)!.sort((a, b) => b.date.localeCompare(a.date));
@@ -455,6 +583,283 @@ function viewHistorial(): HTMLElement {
   });
 
   return wrap;
+}
+
+// ---------- estrategia ----------
+function runNotifyCheck(): void {
+  try {
+    checkAndNotify(state.recurring, state.settings, money);
+  } catch {
+    /* noop */
+  }
+}
+
+function viewEstrategia(): HTMLElement {
+  const wrap = el("section", { class: "view" });
+  wrap.append(el("div", { class: "hero" }, [el("h2", {}, ["Estrategia"])]));
+
+  const prefix = ymPrefix();
+  const monthExp = expensesInMonth(prefix);
+  const cur = state.budget.currency || monthExp[0]?.currency || state.expenses[0]?.currency || "EUR";
+  const monthTotal = monthExp.reduce((s, e) => s + e.total, 0);
+  const now = new Date();
+
+  // donut del mes
+  const chartCard = el("div", { class: "card chart-card" });
+  chartCard.append(el("h3", {}, [`Gasto de ${MONTHS[now.getMonth()]}`]));
+  if (monthExp.length) {
+    chartCard.append(
+      donut(catSegments(monthExp), {
+        size: 200, thickness: 24,
+        centerLabel: money(monthTotal, cur), centerSub: "este mes",
+        fmt: (v) => money(v, cur),
+      })
+    );
+  } else {
+    chartCard.append(el("p", { class: "muted small" }, ["Sin gastos este mes todavía. Captura un ticket para ver el reparto."]));
+  }
+  wrap.append(chartCard);
+
+  wrap.append(capsCard(monthExp, monthTotal, cur));
+  wrap.append(recurringCard(cur));
+  wrap.append(notificationsCard());
+  return wrap;
+}
+
+function capsCard(monthExp: Expense[], monthTotal: number, cur: string): HTMLElement {
+  const card = el("div", { class: "card" });
+  card.append(el("h3", {}, ["Topes de gasto"]));
+  card.append(el("p", { class: "muted small" }, ["Marca un máximo de gasto. Te avisamos al acercarte o pasarte."]));
+
+  // tope global mensual
+  const globalInput = el("input", {
+    class: "field", type: "number", inputmode: "decimal", step: "1", min: "0",
+    placeholder: "Sin tope", value: state.budget.monthlyCap != null ? String(state.budget.monthlyCap) : "",
+  });
+  globalInput.addEventListener("change", () => {
+    const v = parseFloat(globalInput.value);
+    state.budget.monthlyCap = Number.isFinite(v) && v > 0 ? v : null;
+    saveBudget(state.budget);
+    render();
+  });
+  card.append(labeled("Tope mensual total", globalInput));
+  if (state.budget.monthlyCap && state.budget.monthlyCap > 0) {
+    card.append(capBar("Gasto total del mes", monthTotal, state.budget.monthlyCap, cur));
+  }
+
+  // topes por categoría existentes
+  const monthByCat = new Map<Category, number>();
+  for (const e of monthExp) monthByCat.set(e.category, (monthByCat.get(e.category) ?? 0) + e.total);
+  const capEntries = Object.entries(state.budget.categoryCaps) as [Category, number][];
+  if (capEntries.length) {
+    card.append(el("div", { class: "section-title" }, ["Topes por categoría"]));
+    capEntries.sort((a, b) => b[1] - a[1]).forEach(([c, cap]) => {
+      const block = el("div", { class: "cap-block" }, [capBar(c, monthByCat.get(c) ?? 0, cap, cur)]);
+      const rm = el("button", { class: "link-btn danger", "aria-label": `Quitar tope de ${c}` }, ["Quitar"]);
+      rm.addEventListener("click", () => {
+        delete state.budget.categoryCaps[c];
+        saveBudget(state.budget);
+        render();
+      });
+      block.append(rm);
+      card.append(block);
+    });
+  }
+
+  // añadir tope de categoría
+  const catSel = el("select", { class: "field" });
+  for (const c of CATEGORIES) {
+    const o = el("option", { value: c }, [c]);
+    if (c === "Comida a domicilio") o.selected = true;
+    catSel.append(o);
+  }
+  const amtInput = el("input", { class: "field", type: "number", inputmode: "decimal", step: "1", min: "0", placeholder: "Importe €" });
+  amtInput.addEventListener("input", () => amtInput.classList.remove("invalid"));
+  const addBtn = el("button", { class: "btn btn-ghost" }, [el("span", { class: "b-ico" }, [icon("plus", 18)]), "Guardar tope"]);
+  addBtn.addEventListener("click", () => {
+    const v = parseFloat(amtInput.value);
+    if (!Number.isFinite(v) || v <= 0) { amtInput.classList.add("invalid"); amtInput.focus(); return; }
+    state.budget.categoryCaps[catSel.value as Category] = v;
+    saveBudget(state.budget);
+    render();
+  });
+  card.append(
+    el("div", { class: "section-title" }, ["Añadir tope por categoría"]),
+    el("div", { class: "cap-add" }, [labeled("Categoría", catSel), labeled("Tope mensual", amtInput)]),
+    el("div", { class: "actions-row end" }, [addBtn])
+  );
+  return card;
+}
+
+function recurringRow(r: Recurring, i: number): HTMLElement {
+  const color = CATEGORY_COLORS[r.category];
+  const due = nextChargeDate(r);
+  const d = daysUntil(due);
+  const soon = d <= state.settings.notifyDaysBefore;
+  const dueStr = due.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+  const freqLabel = r.frequency === "monthly" ? "mensual" : "anual";
+
+  const row = el("div", { class: "expense rec" + (r.active ? "" : " off"), style: `--cat:${color};animation-delay:${i * 0.04}s` }, [
+    el("div", { class: "exp-ico" }, [icon(CATEGORY_ICON[r.category], 20)]),
+    el("div", { class: "expense-main" }, [
+      el("div", { class: "expense-merchant" }, [r.name]),
+      el("div", { class: "expense-meta" }, [
+        el("span", { class: "rec-next" + (soon && r.active ? " soon" : "") }, [
+          r.active ? `${capFirst(whenLabel(d))} · ${dueStr}` : "Pausado",
+        ]),
+        ` · ${freqLabel}`,
+      ]),
+    ]),
+    el("div", { class: "expense-amount" }, [money(r.amount, r.currency)]),
+  ]);
+
+  const actions = el("div", { class: "rec-actions" });
+  actions.append(
+    switchToggle(r.active, `Avisos de ${r.name}`, (v) => {
+      r.active = v;
+      saveRecurring(state.recurring);
+      render();
+    })
+  );
+  const reg = el("button", { class: "icon-btn neutral", title: "Registrar el cobro como gasto de hoy", "aria-label": `Registrar ${r.name} como gasto` }, [icon("check", 18)]);
+  reg.addEventListener("click", () => {
+    state.expenses = addExpense({
+      id: newId(), date: new Date().toISOString().slice(0, 10),
+      merchant: r.name, total: r.amount, currency: r.currency,
+      category: r.category, note: "Gasto fijo", rawText: "", createdAt: Date.now(),
+    });
+    render();
+  });
+  actions.append(reg);
+  const del = el("button", { class: "icon-btn", title: "Eliminar", "aria-label": `Eliminar gasto fijo ${r.name}` }, [icon("trash", 18)]);
+  del.addEventListener("click", () => {
+    state.recurring = state.recurring.filter((x) => x.id !== r.id);
+    saveRecurring(state.recurring);
+    render();
+  });
+  actions.append(del);
+  row.append(actions);
+  return row;
+}
+
+function recurringCard(cur: string): HTMLElement {
+  const card = el("div", { class: "card" });
+  card.append(el("h3", {}, ["Gastos fijos"]));
+  card.append(el("p", { class: "muted small" }, ["Suscripciones y cobros que se repiten (Netflix, Amazon, alquiler…)."]));
+
+  if (state.recurring.length) {
+    const list = el("div", { class: "list" });
+    state.recurring.forEach((r, i) => list.append(recurringRow(r, i)));
+    card.append(list);
+  } else {
+    card.append(el("p", { class: "muted small recent-hint" }, ["Aún no has programado gastos fijos."]));
+  }
+
+  // formulario
+  const name = el("input", { class: "field", placeholder: "Nombre (p.ej. Netflix)" });
+  name.addEventListener("input", () => name.classList.remove("invalid"));
+  const amount = el("input", { class: "field", type: "number", inputmode: "decimal", step: "0.01", min: "0", placeholder: "Importe €" });
+  amount.addEventListener("input", () => amount.classList.remove("invalid"));
+  const catSel = el("select", { class: "field" });
+  for (const c of CATEGORIES) {
+    const o = el("option", { value: c }, [c]);
+    if (c === "Ocio") o.selected = true;
+    catSel.append(o);
+  }
+  const freq = el("select", { class: "field" });
+  freq.append(el("option", { value: "monthly" }, ["Cada mes"]), el("option", { value: "yearly" }, ["Cada año"]));
+  const day = el("input", { class: "field", type: "number", inputmode: "numeric", min: "1", max: "31", value: "1" });
+  const monthSel = el("select", { class: "field" });
+  MONTHS.forEach((mn, idx) => monthSel.append(el("option", { value: String(idx) }, [mn])));
+  const monthField = labeled("Mes del cobro (anual)", monthSel);
+  monthField.classList.add("hidden");
+  freq.addEventListener("change", () => monthField.classList.toggle("hidden", freq.value !== "yearly"));
+
+  const add = el("button", { class: "btn btn-primary" }, [el("span", { class: "b-ico" }, [icon("plus", 18)]), "Añadir gasto fijo"]);
+  add.addEventListener("click", () => {
+    const a = parseFloat(amount.value);
+    if (!name.value.trim()) { name.classList.add("invalid"); name.focus(); return; }
+    if (!Number.isFinite(a) || a <= 0) { amount.classList.add("invalid"); amount.focus(); return; }
+    const dom = Math.min(31, Math.max(1, parseInt(day.value || "1", 10)));
+    const r: Recurring = {
+      id: newId(), name: name.value.trim(), amount: a, currency: cur,
+      category: catSel.value as Category, frequency: freq.value as Frequency,
+      dayOfMonth: dom, month: freq.value === "yearly" ? parseInt(monthSel.value, 10) : undefined,
+      active: true, createdAt: Date.now(),
+    };
+    state.recurring = [r, ...state.recurring];
+    saveRecurring(state.recurring);
+    runNotifyCheck();
+    render();
+  });
+
+  card.append(
+    el("div", { class: "section-title" }, ["Programar nuevo"]),
+    el("div", { class: "rec-form" }, [
+      labeled("Nombre", name), labeled("Importe", amount),
+      labeled("Categoría", catSel), labeled("Frecuencia", freq),
+      labeled("Día del mes", day), monthField,
+    ]),
+    el("div", { class: "actions-row end" }, [add])
+  );
+  return card;
+}
+
+function notificationsCard(): HTMLElement {
+  const card = el("div", { class: "card" });
+  card.append(el("div", { class: "noti-head" }, [el("span", { class: "noti-ico" }, [icon("bell", 20)]), el("h3", {}, ["Notificaciones"])]));
+
+  if (!notificationsSupported()) {
+    card.append(el("p", { class: "muted small" }, ["Tu navegador no admite notificaciones."]));
+    return card;
+  }
+
+  const perm = notificationPermission();
+  const toggle = switchToggle(state.settings.notificationsEnabled && perm === "granted", "Activar notificaciones", async (v) => {
+    if (v) {
+      const ok = await requestNotificationPermission();
+      state.settings.notificationsEnabled = ok;
+      saveSettings(state.settings);
+      if (ok) runNotifyCheck();
+      render();
+    } else {
+      state.settings.notificationsEnabled = false;
+      saveSettings(state.settings);
+      render();
+    }
+  });
+  card.append(
+    el("div", { class: "noti-row" }, [
+      el("div", { class: "noti-text" }, [
+        el("div", { class: "noti-title" }, ["Avisarme de cobros próximos"]),
+        el("div", { class: "muted small" }, ["Por ejemplo: «Mañana se cobra Netflix»."]),
+      ]),
+      toggle,
+    ])
+  );
+
+  if (perm === "denied") {
+    card.append(el("p", { class: "muted small" }, ["Has bloqueado las notificaciones en el navegador. Actívalas desde los ajustes del sitio."]));
+  }
+
+  const daysSel = el("select", { class: "field" });
+  ([["0", "El mismo día"], ["1", "Un día antes"], ["2", "Dos días antes"], ["3", "Tres días antes"]] as const).forEach(([v, l]) => {
+    const o = el("option", { value: v }, [l]);
+    if (+v === state.settings.notifyDaysBefore) o.selected = true;
+    daysSel.append(o);
+  });
+  daysSel.addEventListener("change", () => {
+    state.settings.notifyDaysBefore = parseInt(daysSel.value, 10);
+    saveSettings(state.settings);
+    render();
+  });
+  card.append(labeled("Antelación del aviso", daysSel));
+  card.append(el("p", { class: "muted small" }, ["Al ser una web/app sin servidor, los avisos se comprueban cuando abres MyExpenses."]));
+  return card;
+}
+
+function capFirst(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function viewInfo(): HTMLElement {
@@ -496,6 +901,7 @@ function nav(): HTMLElement {
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: "capturar", label: "Capturar", icon: "camera" },
     { id: "gastos", label: "Gastos", icon: "wallet" },
+    { id: "estrategia", label: "Estrategia", icon: "target" },
     { id: "historial", label: "Historial", icon: "calendar" },
     { id: "info", label: "Info", icon: "info" },
   ];
@@ -528,6 +934,7 @@ function render() {
   const main = el("main", { class: "content" });
   if (state.tab === "capturar") main.append(viewCapturar());
   else if (state.tab === "gastos") main.append(viewGastos());
+  else if (state.tab === "estrategia") main.append(viewEstrategia());
   else if (state.tab === "historial") main.append(viewHistorial());
   else main.append(viewInfo());
 
@@ -543,6 +950,9 @@ aurora.append(blob);
 document.body.prepend(aurora);
 
 render();
+
+// Comprobar cobros próximos al arrancar (si el usuario ya dio permiso).
+runNotifyCheck();
 
 // Service worker: SOLO en producción. En dev causaría servir assets cacheados
 // (versiones viejas). En dev, además, desregistramos cualquier SW previo.

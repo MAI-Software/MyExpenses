@@ -1,6 +1,10 @@
-import type { Expense } from "./types";
+import type { Budget, Expense, Recurring, Settings } from "./types";
 
 const KEY = "myexpenses.v1";
+const BKEY = "myexpenses.budget.v1";
+const RKEY = "myexpenses.recurring.v1";
+const SKEY = "myexpenses.settings.v1";
+const NKEY = "myexpenses.notified.v1";
 
 export function loadExpenses(): Expense[] {
   try {
@@ -32,4 +36,63 @@ export function deleteExpense(id: string): Expense[] {
 
 export function newId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+// ---------- presupuesto / topes ----------
+const DEFAULT_BUDGET: Budget = { monthlyCap: null, categoryCaps: {}, currency: "EUR" };
+
+export function loadBudget(): Budget {
+  try {
+    const raw = localStorage.getItem(BKEY);
+    if (!raw) return { ...DEFAULT_BUDGET };
+    const b = JSON.parse(raw) as Budget;
+    return { ...DEFAULT_BUDGET, ...b, categoryCaps: b.categoryCaps ?? {} };
+  } catch {
+    return { ...DEFAULT_BUDGET };
+  }
+}
+export function saveBudget(b: Budget): void {
+  localStorage.setItem(BKEY, JSON.stringify(b));
+}
+
+// ---------- gastos fijos / recurrentes ----------
+export function loadRecurring(): Recurring[] {
+  try {
+    const arr = JSON.parse(localStorage.getItem(RKEY) ?? "[]") as Recurring[];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+export function saveRecurring(list: Recurring[]): void {
+  localStorage.setItem(RKEY, JSON.stringify(list));
+}
+
+// ---------- ajustes ----------
+const DEFAULT_SETTINGS: Settings = { notificationsEnabled: false, notifyDaysBefore: 1 };
+
+export function loadSettings(): Settings {
+  try {
+    const raw = localStorage.getItem(SKEY);
+    if (!raw) return { ...DEFAULT_SETTINGS };
+    return { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Settings) };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+export function saveSettings(s: Settings): void {
+  localStorage.setItem(SKEY, JSON.stringify(s));
+}
+
+// ---------- avisos ya enviados (dedupe de notificaciones) ----------
+export function loadNotified(): string[] {
+  try {
+    const arr = JSON.parse(localStorage.getItem(NKEY) ?? "[]") as string[];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+export function saveNotified(keys: string[]): void {
+  localStorage.setItem(NKEY, JSON.stringify(keys.slice(-200)));
 }
