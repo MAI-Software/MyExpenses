@@ -1,20 +1,9 @@
 import "./style.css";
 import { CATEGORIES, type Category, type Expense, type ParsedReceipt } from "./types";
 import { CATEGORY_COLORS } from "./classify";
+import { icon, CATEGORY_ICON } from "./icons";
 import { runOcr } from "./ocr";
 import { parseReceipt } from "./parser";
-
-const CATEGORY_ICONS: Record<Category, string> = {
-  "Alimentación": "🛒",
-  "Restauración": "🍽️",
-  "Transporte": "🚗",
-  "Compras": "🛍️",
-  "Salud": "💊",
-  "Ocio": "🎬",
-  "Hogar": "🏠",
-  "Servicios": "📄",
-  "Otros": "📦",
-};
 import { addExpense, deleteExpense, loadExpenses, newId } from "./store";
 import { exportToXlsx } from "./exportXlsx";
 
@@ -27,6 +16,7 @@ interface State {
   busy: boolean;
   progress: number;
   progressText: string;
+  error: string | null;
 }
 
 const state: State = {
@@ -36,6 +26,7 @@ const state: State = {
   busy: false,
   progress: 0,
   progressText: "",
+  error: null,
 };
 
 const app = document.getElementById("app")!;
@@ -49,7 +40,8 @@ function el<K extends keyof HTMLElementTagNameMap>(
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (k === "class") node.className = v;
-    else if (k.startsWith("data-")) node.setAttribute(k, v);
+    else if (k.startsWith("data-") || k.startsWith("aria-") || k === "role" || k === "inputmode")
+      node.setAttribute(k, v);
     else (node as any)[k] = v;
   }
   for (const c of children) node.append(c);
@@ -80,6 +72,7 @@ function countUp(node: HTMLElement, to: number, currency: string) {
 // ---------- OCR flow ----------
 async function handleFile(file: File) {
   state.busy = true;
+  state.error = null;
   state.progress = 0;
   state.progressText = "Preparando OCR…";
   render();
@@ -92,9 +85,8 @@ async function handleFile(file: File) {
     state.review = parseReceipt(text);
   } catch (err) {
     console.error(err);
-    state.progressText = "Error al leer la imagen.";
     state.review = null;
-    alert("No se pudo procesar la imagen. Prueba con otra foto más nítida.");
+    state.error = "No se pudo procesar la imagen. Prueba con otra foto más nítida.";
   } finally {
     state.busy = false;
     render();
@@ -138,7 +130,7 @@ function viewCapturar(): HTMLElement {
     wrap.append(
       el("div", { class: "ocr-busy" }, [
         scanner,
-        el("div", { class: "ocr-info" }, [
+        el("div", { class: "ocr-info", role: "status", "aria-live": "polite" }, [
           el("p", { class: "muted" }, [state.progressText]),
           bar,
         ]),
@@ -159,12 +151,20 @@ function viewCapturar(): HTMLElement {
     ])
   );
 
-  wrap.append(
-    el("div", { class: "dropzone" }, [
-      el("div", { class: "dz-icon" }, ["🧾"]),
-      el("p", { class: "muted small" }, ["Tu ticket, leído y clasificado en segundos."]),
-    ])
-  );
+  if (state.error) {
+    wrap.append(
+      el("div", { class: "alert", role: "alert" }, [
+        icon("info", 18),
+        el("span", {}, [state.error]),
+      ])
+    );
+  }
+
+  const dz = el("div", { class: "dropzone" }, [
+    el("div", { class: "dz-icon" }, [icon("receipt", 30)]),
+    el("p", { class: "muted small" }, ["Tu ticket, leído y clasificado en segundos."]),
+  ]);
+  wrap.append(dz);
 
   // input cámara
   const camInput = el("input", { type: "file", accept: "image/*", class: "hidden" });
@@ -182,13 +182,13 @@ function viewCapturar(): HTMLElement {
   });
 
   const btnCam = el("button", { class: "btn btn-primary big" }, [
-    el("span", { class: "b-ico" }, ["📷"]),
+    el("span", { class: "b-ico" }, [icon("camera", 20)]),
     "Hacer foto",
   ]);
   btnCam.addEventListener("click", () => camInput.click());
 
   const btnUp = el("button", { class: "btn btn-ghost big" }, [
-    el("span", { class: "b-ico" }, ["⬆️"]),
+    el("span", { class: "b-ico" }, [icon("upload", 20)]),
     "Subir imagen",
   ]);
   btnUp.addEventListener("click", () => upInput.click());
@@ -201,9 +201,9 @@ function reviewForm(r: ParsedReceipt): HTMLElement {
   const card = el("div", { class: "card review" });
   card.append(el("h3", {}, ["Revisar y confirmar"]));
 
-  const merchant = el("input", { class: "field", value: r.merchant, placeholder: "Comercio" });
-  const total = el("input", { class: "field", type: "number", step: "0.01", value: r.total != null ? String(r.total) : "", placeholder: "Importe" });
-  const currency = el("input", { class: "field", value: r.currency, placeholder: "Moneda" });
+  const merchant = el("input", { class: "field", value: r.merchant, placeholder: "Comercio", autofocus: "true" });
+  const total = el("input", { class: "field", type: "number", step: "0.01", inputmode: "decimal", value: r.total != null ? String(r.total) : "", placeholder: "0,00" });
+  const currency = el("input", { class: "field", value: r.currency, placeholder: "EUR" });
   const date = el("input", { class: "field", type: "date", value: r.date ?? new Date().toISOString().slice(0, 10) });
   const note = el("input", { class: "field", value: "", placeholder: "Nota (opcional)" });
 
@@ -214,9 +214,12 @@ function reviewForm(r: ParsedReceipt): HTMLElement {
     cat.append(o);
   }
 
+  const totalErr = el("span", { class: "field-error", role: "alert" }, [""]);
+  totalErr.style.display = "none";
+
   card.append(
     labeled("Comercio", merchant),
-    labeled("Importe", total),
+    labeled("Importe", total, true, totalErr),
     labeled("Moneda", currency),
     labeled("Fecha", date),
     labeled("Categoría", cat),
@@ -230,8 +233,11 @@ function reviewForm(r: ParsedReceipt): HTMLElement {
   const save = el("button", { class: "btn btn-primary" }, ["Guardar gasto"]);
   save.addEventListener("click", () => {
     const t = parseFloat(total.value);
-    if (!Number.isFinite(t)) {
-      alert("Indica un importe válido.");
+    if (!Number.isFinite(t) || t <= 0) {
+      totalErr.textContent = "Indica un importe válido mayor que 0.";
+      totalErr.style.display = "block";
+      total.classList.add("invalid");
+      total.focus();
       return;
     }
     saveReview(r, {
@@ -254,8 +260,12 @@ function reviewForm(r: ParsedReceipt): HTMLElement {
   return card;
 }
 
-function labeled(label: string, input: HTMLElement): HTMLElement {
-  return el("label", { class: "labeled" }, [el("span", { class: "label" }, [label]), input]);
+function labeled(label: string, input: HTMLElement, required = false, extra?: HTMLElement): HTMLElement {
+  const lbl = el("span", { class: "label" }, [label]);
+  if (required) lbl.append(el("span", { class: "req", "aria-hidden": "true" }, [" *"]));
+  const node = el("label", { class: "labeled" }, [lbl, input]);
+  if (extra) node.append(extra);
+  return node;
 }
 
 function viewGastos(): HTMLElement {
@@ -265,7 +275,7 @@ function viewGastos(): HTMLElement {
   if (list.length === 0) {
     wrap.append(
       el("div", { class: "empty" }, [
-        el("div", { class: "empty-icon" }, ["🧾"]),
+        el("div", { class: "empty-icon" }, [icon("receipt", 44)]),
         el("p", { class: "muted" }, ["Aún no hay gastos. Captura tu primer ticket."]),
       ])
     );
@@ -301,7 +311,7 @@ function viewGastos(): HTMLElement {
   wrap.append(chips);
 
   const exportBtn = el("button", { class: "btn btn-primary" }, [
-    el("span", { class: "b-ico" }, ["⬇️"]),
+    el("span", { class: "b-ico" }, [icon("download", 18)]),
     "Exportar a Excel",
   ]);
   exportBtn.addEventListener("click", () => {
@@ -316,14 +326,14 @@ function viewGastos(): HTMLElement {
   list.forEach((e, i) => {
     const color = CATEGORY_COLORS[e.category];
     const row = el("div", { class: "expense", style: `--cat:${color};animation-delay:${i * 0.04}s` }, [
-      el("div", { class: "exp-ico" }, [CATEGORY_ICONS[e.category]]),
+      el("div", { class: "exp-ico" }, [icon(CATEGORY_ICON[e.category], 20)]),
       el("div", { class: "expense-main" }, [
         el("div", { class: "expense-merchant" }, [e.merchant]),
         el("div", { class: "expense-meta" }, [`${e.date} · ${e.category}`]),
       ]),
       el("div", { class: "expense-amount" }, [money(e.total, e.currency)]),
     ]);
-    const del = el("button", { class: "icon-btn", title: "Eliminar" }, ["✕"]);
+    const del = el("button", { class: "icon-btn", title: "Eliminar", "aria-label": `Eliminar gasto de ${e.merchant}` }, [icon("trash", 18)]);
     del.addEventListener("click", () => {
       state.expenses = deleteExpense(e.id);
       render();
@@ -372,16 +382,18 @@ function viewInfo(): HTMLElement {
 // ---------- shell ----------
 function nav(): HTMLElement {
   const tabs: { id: Tab; label: string; icon: string }[] = [
-    { id: "capturar", label: "Capturar", icon: "📷" },
-    { id: "gastos", label: "Gastos", icon: "📊" },
-    { id: "info", label: "Info", icon: "ⓘ" },
+    { id: "capturar", label: "Capturar", icon: "camera" },
+    { id: "gastos", label: "Gastos", icon: "wallet" },
+    { id: "info", label: "Info", icon: "info" },
   ];
-  const bar = el("nav", { class: "tabbar" });
+  const bar = el("nav", { class: "tabbar", "aria-label": "Navegación principal" });
   for (const t of tabs) {
-    const b = el("button", { class: "tab" + (state.tab === t.id ? " active" : "") }, [
-      el("span", { class: "tab-icon" }, [t.icon]),
+    const active = state.tab === t.id;
+    const b = el("button", { class: "tab" + (active ? " active" : "") }, [
+      el("span", { class: "tab-icon" }, [icon(t.icon, 22)]),
       el("span", { class: "tab-label" }, [t.label]),
     ]);
+    if (active) b.setAttribute("aria-current", "page");
     b.addEventListener("click", () => {
       state.tab = t.id;
       render();
