@@ -303,6 +303,33 @@ select.field { appearance: none; }
 }
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; box-shadow: 0 0 8px currentColor; }
 
+/* ---------- historial ---------- */
+.year-filter { display: flex; flex-wrap: wrap; gap: 8px; }
+.year-chip {
+  font-size: 14px; font-weight: 600; font-family: inherit;
+  padding: 8px 16px; border-radius: 99px; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); color: var(--muted);
+  transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+}
+.year-chip:hover { color: var(--text); }
+.year-chip.active {
+  background: var(--accent-grad); color: var(--accent-ink); border-color: transparent;
+  box-shadow: 0 6px 18px -6px rgba(122,242,221,0.5);
+}
+.year-summary {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 2px 4px;
+}
+.year-summary strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+.month-header {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin: 14px 4px 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.month-name { font-size: 15px; font-weight: 600; }
+.month-total { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
 /* ---------- expense list ---------- */
 .section-title { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.7px; font-weight: 600; margin: 2px 2px -4px; }
 .list { display: flex; flex-direction: column; gap: 10px; }

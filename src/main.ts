@@ -7,7 +7,12 @@ import { parseReceipt } from "./parser";
 import { addExpense, deleteExpense, loadExpenses, newId } from "./store";
 import { exportToXlsx } from "./exportXlsx";
 
-type Tab = "capturar" | "gastos" | "info";
+type Tab = "capturar" | "gastos" | "historial" | "info";
+
+const MONTHS = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+];
 
 interface State {
   tab: Tab;
@@ -17,6 +22,7 @@ interface State {
   progress: number;
   progressText: string;
   error: string | null;
+  histYear: number | null;
 }
 
 const state: State = {
@@ -27,6 +33,7 @@ const state: State = {
   progress: 0,
   progressText: "",
   error: null,
+  histYear: null,
 };
 
 const app = document.getElementById("app")!;
@@ -323,25 +330,98 @@ function viewGastos(): HTMLElement {
   wrap.append(el("div", { class: "section-title" }, ["Movimientos"]));
 
   const items = el("div", { class: "list" });
-  list.forEach((e, i) => {
-    const color = CATEGORY_COLORS[e.category];
-    const row = el("div", { class: "expense", style: `--cat:${color};animation-delay:${i * 0.04}s` }, [
-      el("div", { class: "exp-ico" }, [icon(CATEGORY_ICON[e.category], 20)]),
-      el("div", { class: "expense-main" }, [
-        el("div", { class: "expense-merchant" }, [e.merchant]),
-        el("div", { class: "expense-meta" }, [`${e.date} · ${e.category}`]),
-      ]),
-      el("div", { class: "expense-amount" }, [money(e.total, e.currency)]),
-    ]);
-    const del = el("button", { class: "icon-btn", title: "Eliminar", "aria-label": `Eliminar gasto de ${e.merchant}` }, [icon("trash", 18)]);
-    del.addEventListener("click", () => {
-      state.expenses = deleteExpense(e.id);
+  list.forEach((e, i) => items.append(expenseRow(e, i)));
+  wrap.append(items);
+  return wrap;
+}
+
+// Tarjeta de gasto reutilizable (Gastos e Historial).
+function expenseRow(e: Expense, i: number): HTMLElement {
+  const color = CATEGORY_COLORS[e.category];
+  const row = el("div", { class: "expense", style: `--cat:${color};animation-delay:${i * 0.04}s` }, [
+    el("div", { class: "exp-ico" }, [icon(CATEGORY_ICON[e.category], 20)]),
+    el("div", { class: "expense-main" }, [
+      el("div", { class: "expense-merchant" }, [e.merchant]),
+      el("div", { class: "expense-meta" }, [`${e.date} · ${e.category}`]),
+    ]),
+    el("div", { class: "expense-amount" }, [money(e.total, e.currency)]),
+  ]);
+  const del = el("button", { class: "icon-btn", title: "Eliminar", "aria-label": `Eliminar gasto de ${e.merchant}` }, [icon("trash", 18)]);
+  del.addEventListener("click", () => {
+    state.expenses = deleteExpense(e.id);
+    render();
+  });
+  row.append(del);
+  return row;
+}
+
+function viewHistorial(): HTMLElement {
+  const wrap = el("section", { class: "view" });
+  const all = state.expenses;
+
+  if (all.length === 0) {
+    wrap.append(
+      el("div", { class: "empty" }, [
+        el("div", { class: "empty-icon" }, [icon("calendar", 44)]),
+        el("p", { class: "muted" }, ["Sin historial todavía. Captura tu primer ticket."]),
+      ])
+    );
+    return wrap;
+  }
+
+  wrap.append(el("div", { class: "hero" }, [el("h2", {}, ["Historial"])]));
+
+  // años disponibles (desc)
+  const years = [...new Set(all.map((e) => +e.date.slice(0, 4)).filter((y) => y > 0))].sort((a, b) => b - a);
+  let year = state.histYear ?? years[0];
+  if (!years.includes(year)) year = years[0];
+
+  // filtro de año
+  const filter = el("div", { class: "year-filter", role: "group", "aria-label": "Filtrar por año" });
+  for (const y of years) {
+    const chip = el("button", { class: "year-chip" + (y === year ? " active" : "") }, [String(y)]);
+    if (y === year) chip.setAttribute("aria-current", "true");
+    chip.addEventListener("click", () => {
+      state.histYear = y;
       render();
     });
-    row.append(del);
-    items.append(row);
+    filter.append(chip);
+  }
+  wrap.append(filter);
+
+  // gastos del año, agrupados por mes
+  const ofYear = all.filter((e) => +e.date.slice(0, 4) === year);
+  const cur = ofYear[0]?.currency ?? "EUR";
+  const byMonth = new Map<number, Expense[]>();
+  for (const e of ofYear) {
+    const m = +e.date.slice(5, 7) - 1;
+    if (!byMonth.has(m)) byMonth.set(m, []);
+    byMonth.get(m)!.push(e);
+  }
+
+  const yearTotal = ofYear.reduce((s, e) => s + e.total, 0);
+  wrap.append(
+    el("div", { class: "year-summary" }, [
+      el("span", { class: "muted" }, [`${ofYear.length} ${ofYear.length === 1 ? "gasto" : "gastos"} en ${year}`]),
+      el("strong", {}, [money(yearTotal, cur)]),
+    ])
+  );
+
+  let idx = 0;
+  [...byMonth.keys()].sort((a, b) => b - a).forEach((m) => {
+    const monthExp = byMonth.get(m)!.sort((a, b) => b.date.localeCompare(a.date));
+    const monthTotal = monthExp.reduce((s, e) => s + e.total, 0);
+    wrap.append(
+      el("div", { class: "month-header" }, [
+        el("span", { class: "month-name" }, [MONTHS[m]]),
+        el("span", { class: "month-total" }, [money(monthTotal, cur)]),
+      ])
+    );
+    const items = el("div", { class: "list" });
+    monthExp.forEach((e) => items.append(expenseRow(e, idx++)));
+    wrap.append(items);
   });
-  wrap.append(items);
+
   return wrap;
 }
 
@@ -384,6 +464,7 @@ function nav(): HTMLElement {
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: "capturar", label: "Capturar", icon: "camera" },
     { id: "gastos", label: "Gastos", icon: "wallet" },
+    { id: "historial", label: "Historial", icon: "calendar" },
     { id: "info", label: "Info", icon: "info" },
   ];
   const bar = el("nav", { class: "tabbar", "aria-label": "Navegación principal" });
@@ -415,6 +496,7 @@ function render() {
   const main = el("main", { class: "content" });
   if (state.tab === "capturar") main.append(viewCapturar());
   else if (state.tab === "gastos") main.append(viewGastos());
+  else if (state.tab === "historial") main.append(viewHistorial());
   else main.append(viewInfo());
 
   app.append(header, main, nav());
