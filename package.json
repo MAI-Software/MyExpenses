@@ -1,0 +1,22 @@
+{
+  "name": "myexpenses",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "MyExpenses — control de gasto por foto de ticket. PWA por MAISoftwares.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "icons": "node scripts/gen-icons.mjs"
+  },
+  "dependencies": {
+    "tesseract.js": "^5.1.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "sharp": "^0.33.5",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}
