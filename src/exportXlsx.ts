@@ -1,7 +1,8 @@
-import * as XLSX from "xlsx";
 import type { Expense } from "./types";
 
-export function exportToXlsx(list: Expense[]): void {
+export async function exportToXlsx(list: Expense[]): Promise<void> {
+  // Carga diferida: SheetJS solo se descarga al exportar.
+  const XLSX = await import("xlsx");
   const rows = list.map((e) => ({
     Fecha: e.date,
     Comercio: e.merchant,

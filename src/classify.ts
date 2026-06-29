@@ -71,6 +71,19 @@ const RULES: { category: Category; keywords: string[] }[] = [
   },
 ];
 
+// Color suave por categoría (paleta tenue, coherente con la UI futurista).
+export const CATEGORY_COLORS: Record<Category, string> = {
+  "Alimentación": "#5eead4",
+  "Restauración": "#f5a97f",
+  "Transporte": "#8aadf4",
+  "Compras": "#c6a0f6",
+  "Salud": "#a6da95",
+  "Ocio": "#f5bde6",
+  "Hogar": "#eed49f",
+  "Servicios": "#91d7e3",
+  "Otros": "#939ab7",
+};
+
 export function classify(merchant: string, rawText: string): Category {
   const hay = `${merchant}\n${rawText}`.toLowerCase();
   for (const rule of RULES) {

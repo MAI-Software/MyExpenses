@@ -1,5 +1,3 @@
-import Tesseract from "tesseract.js";
-
 export type OcrProgress = (pct: number, status: string) => void;
 
 // Reduce la imagen para acelerar el OCR en móvil (lado máx ~1600px).
@@ -28,6 +26,10 @@ async function downscale(file: File, maxSide = 1600): Promise<string> {
 
 export async function runOcr(file: File, onProgress?: OcrProgress): Promise<string> {
   const dataUrl = await downscale(file);
+  // Carga diferida: Tesseract (~300KB + wasm) solo se descarga al capturar,
+  // no en el arranque de la app. Mejora el First Load drásticamente.
+  onProgress?.(0, "Cargando motor OCR…");
+  const { default: Tesseract } = await import("tesseract.js");
   const { data } = await Tesseract.recognize(dataUrl, "spa+eng", {
     logger: (m) => {
       if (m.status === "recognizing text" && onProgress) {

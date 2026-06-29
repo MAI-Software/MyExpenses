@@ -1,7 +1,20 @@
 import "./style.css";
 import { CATEGORIES, type Category, type Expense, type ParsedReceipt } from "./types";
+import { CATEGORY_COLORS } from "./classify";
 import { runOcr } from "./ocr";
 import { parseReceipt } from "./parser";
+
+const CATEGORY_ICONS: Record<Category, string> = {
+  "Alimentación": "🛒",
+  "Restauración": "🍽️",
+  "Transporte": "🚗",
+  "Compras": "🛍️",
+  "Salud": "💊",
+  "Ocio": "🎬",
+  "Hogar": "🏠",
+  "Servicios": "📄",
+  "Otros": "📦",
+};
 import { addExpense, deleteExpense, loadExpenses, newId } from "./store";
 import { exportToXlsx } from "./exportXlsx";
 
@@ -49,6 +62,19 @@ function money(n: number, currency = "EUR"): string {
   } catch {
     return `${n.toFixed(2)} ${currency}`;
   }
+}
+
+// Animación count-up para el total.
+function countUp(node: HTMLElement, to: number, currency: string) {
+  const dur = 700;
+  const start = performance.now();
+  function step(now: number) {
+    const t = Math.min(1, (now - start) / dur);
+    const eased = 1 - Math.pow(1 - t, 3);
+    node.textContent = money(to * eased, currency);
+    if (t < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
 }
 
 // ---------- OCR flow ----------
@@ -100,15 +126,22 @@ function viewCapturar(): HTMLElement {
   const wrap = el("section", { class: "view" });
 
   if (state.busy) {
+    const scanner = el("div", { class: "scanner" }, [
+      el("div", { class: "ln" }),
+      el("div", { class: "ln" }),
+      el("div", { class: "ln" }),
+      el("div", { class: "ln" }),
+      el("div", { class: "beam" }),
+    ]);
+    const bar = el("div", { class: "progress" });
+    bar.append(el("div", { class: "progress-fill", style: `width:${state.progress}%` }));
     wrap.append(
       el("div", { class: "ocr-busy" }, [
-        el("div", { class: "spinner" }),
-        el("p", { class: "muted" }, [state.progressText]),
-        (() => {
-          const bar = el("div", { class: "progress" });
-          bar.append(el("div", { class: "progress-fill", style: `width:${state.progress}%` }));
-          return bar;
-        })(),
+        scanner,
+        el("div", { class: "ocr-info" }, [
+          el("p", { class: "muted" }, [state.progressText]),
+          bar,
+        ]),
       ])
     );
     return wrap;
@@ -122,7 +155,14 @@ function viewCapturar(): HTMLElement {
   wrap.append(
     el("div", { class: "hero" }, [
       el("h2", {}, ["Captura un gasto"]),
-      el("p", { class: "muted" }, ["Haz una foto del ticket o súbelo. MyExpenses lo lee y lo clasifica."]),
+      el("p", { class: "muted" }, ["Haz una foto del ticket o súbelo. MyExpenses lo lee y lo clasifica solo."]),
+    ])
+  );
+
+  wrap.append(
+    el("div", { class: "dropzone" }, [
+      el("div", { class: "dz-icon" }, ["🧾"]),
+      el("p", { class: "muted small" }, ["Tu ticket, leído y clasificado en segundos."]),
     ])
   );
 
@@ -141,10 +181,16 @@ function viewCapturar(): HTMLElement {
     if (f) handleFile(f);
   });
 
-  const btnCam = el("button", { class: "btn btn-primary big" }, ["📷  Hacer foto"]);
+  const btnCam = el("button", { class: "btn btn-primary big" }, [
+    el("span", { class: "b-ico" }, ["📷"]),
+    "Hacer foto",
+  ]);
   btnCam.addEventListener("click", () => camInput.click());
 
-  const btnUp = el("button", { class: "btn btn-ghost big" }, ["⬆️  Subir imagen"]);
+  const btnUp = el("button", { class: "btn btn-ghost big" }, [
+    el("span", { class: "b-ico" }, ["⬆️"]),
+    "Subir imagen",
+  ]);
   btnUp.addEventListener("click", () => upInput.click());
 
   wrap.append(el("div", { class: "actions-col" }, [btnCam, btnUp, camInput, upInput]));
@@ -226,32 +272,51 @@ function viewGastos(): HTMLElement {
     return wrap;
   }
 
+  const cur = list[0].currency;
   const totalGastado = list.reduce((s, e) => s + e.total, 0);
-  const byCat = new Map<string, number>();
+  const byCat = new Map<Category, number>();
   for (const e of list) byCat.set(e.category, (byCat.get(e.category) ?? 0) + e.total);
 
+  // tarjeta de balance con count-up
+  const amt = el("div", { class: "amt" }, [money(0, cur)]);
   wrap.append(
-    el("div", { class: "summary" }, [
-      el("div", { class: "summary-total" }, [
-        el("span", { class: "muted" }, ["Total gastado"]),
-        el("strong", {}, [money(totalGastado, list[0].currency)]),
-      ]),
+    el("div", { class: "balance" }, [
+      el("div", { class: "lbl" }, ["Total gastado"]),
+      amt,
+      el("div", { class: "sub" }, [`${list.length} ${list.length === 1 ? "gasto" : "gastos"} registrados`]),
     ])
   );
+  countUp(amt, totalGastado, cur);
 
+  // chips por categoría con punto de color
   const chips = el("div", { class: "chips" });
   [...byCat.entries()].sort((a, b) => b[1] - a[1]).forEach(([c, v]) => {
-    chips.append(el("span", { class: "chip" }, [`${c} · ${money(v, list[0].currency)}`]));
+    chips.append(
+      el("span", { class: "chip" }, [
+        el("span", { class: "dot", style: `color:${CATEGORY_COLORS[c]};background:${CATEGORY_COLORS[c]}` }),
+        `${c} · ${money(v, cur)}`,
+      ])
+    );
   });
   wrap.append(chips);
 
-  const exportBtn = el("button", { class: "btn btn-primary" }, ["⬇️  Exportar a Excel (.xlsx)"]);
-  exportBtn.addEventListener("click", () => exportToXlsx(list));
+  const exportBtn = el("button", { class: "btn btn-primary" }, [
+    el("span", { class: "b-ico" }, ["⬇️"]),
+    "Exportar a Excel",
+  ]);
+  exportBtn.addEventListener("click", () => {
+    exportBtn.textContent = "Generando…";
+    exportToXlsx(list).finally(() => render());
+  });
   wrap.append(el("div", { class: "actions-row end" }, [exportBtn]));
 
+  wrap.append(el("div", { class: "section-title" }, ["Movimientos"]));
+
   const items = el("div", { class: "list" });
-  for (const e of list) {
-    const row = el("div", { class: "expense" }, [
+  list.forEach((e, i) => {
+    const color = CATEGORY_COLORS[e.category];
+    const row = el("div", { class: "expense", style: `--cat:${color};animation-delay:${i * 0.04}s` }, [
+      el("div", { class: "exp-ico" }, [CATEGORY_ICONS[e.category]]),
       el("div", { class: "expense-main" }, [
         el("div", { class: "expense-merchant" }, [e.merchant]),
         el("div", { class: "expense-meta" }, [`${e.date} · ${e.category}`]),
@@ -265,7 +330,7 @@ function viewGastos(): HTMLElement {
     });
     row.append(del);
     items.append(row);
-  }
+  });
   wrap.append(items);
   return wrap;
 }
@@ -330,7 +395,7 @@ function render() {
   app.innerHTML = "";
   const header = el("header", { class: "topbar" }, [
     el("div", { class: "brand" }, [
-      el("span", { class: "brand-dot" }),
+      el("span", { class: "brand-mark" }, ["M"]),
       el("span", { class: "brand-name" }, ["MyExpenses"]),
     ]),
   ]);
@@ -343,11 +408,25 @@ function render() {
   app.append(header, main, nav());
 }
 
+// aurora de fondo (una sola vez, fuera de #app)
+const aurora = document.createElement("div");
+aurora.className = "aurora";
+const blob = document.createElement("div");
+blob.className = "blob";
+aurora.append(blob);
+document.body.prepend(aurora);
+
 render();
 
-// registro del service worker (PWA)
+// Service worker: SOLO en producción. En dev causaría servir assets cacheados
+// (versiones viejas). En dev, además, desregistramos cualquier SW previo.
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {});
-  });
+  if (import.meta.env.PROD) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {});
+    });
+  } else {
+    navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister()));
+    if ("caches" in window) caches.keys().then((ks) => ks.forEach((k) => caches.delete(k)));
+  }
 }

@@ -18,16 +18,32 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
-  e.respondWith(
-    caches.match(req).then((hit) => {
-      if (hit) return hit;
-      return fetch(req)
+
+  const isNav = req.mode === "navigate" || (req.headers.get("accept") || "").includes("text/html");
+
+  if (isNav) {
+    // network-first: siempre intenta la versión nueva, cae a cache offline.
+    e.respondWith(
+      fetch(req)
         .then((res) => {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
           return res;
         })
-        .catch(() => hit);
+        .catch(() => caches.match(req).then((hit) => hit || caches.match("./index.html")))
+    );
+    return;
+  }
+
+  // cache-first para assets (hasheados/inmutables) y CDN de OCR.
+  e.respondWith(
+    caches.match(req).then((hit) => {
+      if (hit) return hit;
+      return fetch(req).then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+        return res;
+      });
     })
   );
 });
