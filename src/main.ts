@@ -151,12 +151,24 @@ function viewCapturar(): HTMLElement {
     return wrap;
   }
 
+  // ----- resumen del mes actual -----
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const ymPrefix = `${y}-${String(m + 1).padStart(2, "0")}`;
+  const monthExp = state.expenses.filter((e) => e.date.startsWith(ymPrefix));
+  const monthTotal = monthExp.reduce((s, e) => s + e.total, 0);
+  const cur = monthExp[0]?.currency ?? state.expenses[0]?.currency ?? "EUR";
+
+  const amt = el("div", { class: "amt" }, [money(0, cur)]);
   wrap.append(
-    el("div", { class: "hero" }, [
-      el("h2", {}, ["Captura un gasto"]),
-      el("p", { class: "muted" }, ["Haz una foto del ticket o súbelo. MyExpenses lo lee y lo clasifica solo."]),
+    el("div", { class: "balance" }, [
+      el("div", { class: "lbl" }, [`Gastado en ${MONTHS[m]} ${y}`]),
+      amt,
+      el("div", { class: "sub" }, [`${monthExp.length} ${monthExp.length === 1 ? "compra" : "compras"} este mes`]),
     ])
   );
+  countUp(amt, monthTotal, cur);
 
   if (state.error) {
     wrap.append(
@@ -167,21 +179,13 @@ function viewCapturar(): HTMLElement {
     );
   }
 
-  const dz = el("div", { class: "dropzone" }, [
-    el("div", { class: "dz-icon" }, [icon("receipt", 30)]),
-    el("p", { class: "muted small" }, ["Tu ticket, leído y clasificado en segundos."]),
-  ]);
-  wrap.append(dz);
-
-  // input cámara
+  // ----- captura (acceso rápido) -----
   const camInput = el("input", { type: "file", accept: "image/*", class: "hidden" });
   camInput.setAttribute("capture", "environment");
   camInput.addEventListener("change", () => {
     const f = camInput.files?.[0];
     if (f) handleFile(f);
   });
-
-  // input subir
   const upInput = el("input", { type: "file", accept: "image/*", class: "hidden" });
   upInput.addEventListener("change", () => {
     const f = upInput.files?.[0];
@@ -201,6 +205,34 @@ function viewCapturar(): HTMLElement {
   btnUp.addEventListener("click", () => upInput.click());
 
   wrap.append(el("div", { class: "actions-col" }, [btnCam, btnUp, camInput, upInput]));
+
+  // ----- últimas compras -----
+  const recent = [...state.expenses]
+    .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt)
+    .slice(0, 5);
+
+  if (recent.length === 0) {
+    wrap.append(
+      el("p", { class: "muted small recent-hint" }, ["Tus últimas compras aparecerán aquí."])
+    );
+    return wrap;
+  }
+
+  const seeAll = el("button", { class: "link-btn" }, ["Ver todo"]);
+  seeAll.addEventListener("click", () => {
+    state.tab = "historial";
+    render();
+  });
+  wrap.append(
+    el("div", { class: "section-row" }, [
+      el("div", { class: "section-title" }, ["Últimas compras"]),
+      seeAll,
+    ])
+  );
+
+  const items = el("div", { class: "list" });
+  recent.forEach((e, i) => items.append(expenseRow(e, i)));
+  wrap.append(items);
   return wrap;
 }
 

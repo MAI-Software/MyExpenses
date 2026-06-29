@@ -303,6 +303,20 @@ select.field { appearance: none; }
 }
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; box-shadow: 0 0 8px currentColor; }
 
+/* ---------- home: secciones ---------- */
+.section-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 8px 2px -2px;
+}
+.section-row .section-title { margin: 0; }
+.link-btn {
+  background: transparent; border: none; color: var(--accent);
+  font-family: inherit; font-size: 14px; font-weight: 600;
+  cursor: pointer; padding: 6px 8px; border-radius: 8px;
+}
+.link-btn:hover { background: var(--surface); }
+.recent-hint { text-align: center; padding: 18px 0 4px; }
+
 /* ---------- historial ---------- */
 .year-filter { display: flex; flex-wrap: wrap; gap: 8px; }
 .year-chip {
