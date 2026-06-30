@@ -93,6 +93,7 @@ const app = document.getElementById("app")!;
 
 // ---------- instalación PWA ----------
 let deferredInstallPrompt: any = null;
+let backupMsg = ""; // mensaje de copia que sobrevive al re-render
 
 function isStandalone(): boolean {
   return window.matchMedia("(display-mode: standalone)").matches || (navigator as any).standalone === true;
@@ -701,6 +702,7 @@ function viewEstrategia(): HTMLElement {
   wrap.append(capsCard(monthExp, monthTotal, cur));
   wrap.append(recurringCard(cur));
   wrap.append(categoriesCard());
+  wrap.append(backupCard());
   wrap.append(planCard());
   wrap.append(notificationsCard());
   return wrap;
@@ -940,6 +942,120 @@ function categoriesCard(): HTMLElement {
     err,
     el("div", { class: "actions-row end" }, [add])
   );
+  return card;
+}
+
+// ---------- copia de seguridad sin conexión (JSON) ----------
+function backupBundle() {
+  return {
+    app: "MyExpenses",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    expenses: state.expenses,
+    customCategories: loadCustomCategories(),
+    recurring: state.recurring,
+  };
+}
+
+function backupFile(): File {
+  const stamp = new Date().toISOString().slice(0, 10);
+  return new File([JSON.stringify(backupBundle(), null, 2)], `MyExpenses_${stamp}.json`, {
+    type: "application/json",
+  });
+}
+
+function downloadBackup(): void {
+  const file = backupFile();
+  const url = URL.createObjectURL(file);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = file.name;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Importa y FUSIONA (no sobrescribe): gastos por id, categorías por nombre, fijos por id.
+function importBackup(data: any): { exp: number; cat: number; rec: number } {
+  let exp = 0, cat = 0, rec = 0;
+  if (data && Array.isArray(data.expenses)) {
+    const have = new Set(state.expenses.map((e) => e.id));
+    const add = data.expenses.filter((e: any) => e && e.id && !have.has(e.id));
+    if (add.length) {
+      state.expenses = [...add, ...state.expenses].sort((a, b) => b.date.localeCompare(a.date));
+      saveExpenses(state.expenses);
+      exp = add.length;
+    }
+  }
+  if (data && Array.isArray(data.customCategories)) {
+    const cur = loadCustomCategories();
+    const names = new Set(cur.map((c) => c.name.toLowerCase()));
+    const add = data.customCategories.filter((c: any) => c && c.name && !names.has(String(c.name).toLowerCase()));
+    if (add.length) {
+      saveCustomCategories([...cur, ...add]);
+      cat = add.length;
+    }
+  }
+  if (data && Array.isArray(data.recurring)) {
+    const have = new Set(state.recurring.map((r) => r.id));
+    const add = data.recurring.filter((r: any) => r && r.id && !have.has(r.id));
+    if (add.length) {
+      state.recurring = [...state.recurring, ...add];
+      saveRecurring(state.recurring);
+      rec = add.length;
+    }
+  }
+  return { exp, cat, rec };
+}
+
+function backupCard(): HTMLElement {
+  const card = el("div", { class: "card" });
+  card.append(el("div", { class: "noti-head" }, [el("span", { class: "noti-ico" }, [icon("save", 20)]), el("h3", {}, ["Copia de seguridad"])]));
+  card.append(el("p", { class: "muted small" }, ["Sin conexión ni Google: guarda o comparte un archivo con todos tus gastos, e impórtalo en otro móvil (se fusiona, no se borra nada)."]));
+
+  const status = el("p", { class: "muted small" }, [backupMsg]);
+
+  const exportBtn = el("button", { class: "btn btn-primary" }, [el("span", { class: "b-ico" }, [icon("download", 18)]), "Exportar copia"]);
+  exportBtn.addEventListener("click", () => {
+    downloadBackup();
+    status.textContent = "Copia descargada.";
+  });
+
+  const shareBtn = el("button", { class: "btn btn-ghost" }, [el("span", { class: "b-ico" }, [icon("share", 18)]), "Compartir copia"]);
+  shareBtn.addEventListener("click", async () => {
+    const file = backupFile();
+    const nav = navigator as any;
+    if (nav.canShare && nav.canShare({ files: [file] })) {
+      try {
+        await nav.share({ files: [file], title: "MyExpenses", text: "Copia de mis gastos (MyExpenses)" });
+        status.textContent = "Compartido.";
+      } catch {
+        status.textContent = "Compartir cancelado.";
+      }
+    } else {
+      downloadBackup();
+      status.textContent = "Tu navegador no permite compartir archivos; copia descargada para enviarla a mano.";
+    }
+  });
+
+  const importInput = el("input", { type: "file", accept: "application/json,.json", class: "hidden" });
+  importInput.addEventListener("change", async () => {
+    const f = importInput.files?.[0];
+    if (!f) return;
+    try {
+      const data = JSON.parse(await f.text());
+      const r = importBackup(data);
+      backupMsg = `Importado: ${r.exp} gastos, ${r.cat} categorías, ${r.rec} fijos.`;
+      render();
+    } catch {
+      status.textContent = "Archivo no válido.";
+    }
+  });
+  const importBtn = el("button", { class: "btn btn-ghost" }, [el("span", { class: "b-ico" }, [icon("upload", 18)]), "Importar copia"]);
+  importBtn.addEventListener("click", () => importInput.click());
+
+  card.append(el("div", { class: "actions-col" }, [exportBtn, shareBtn, importBtn, importInput]), status);
   return card;
 }
 

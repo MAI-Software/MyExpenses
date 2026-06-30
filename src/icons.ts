@@ -57,6 +57,10 @@ const PATHS: Record<string, string> = {
     '<path d="M9.94 14.06A2 2 0 0 0 8.5 12.6l-5.5-1.4a.5.5 0 0 1 0-.97l5.5-1.4A2 2 0 0 0 9.94 7.4l1.4-5.5a.5.5 0 0 1 .97 0l1.4 5.5a2 2 0 0 0 1.44 1.44l5.5 1.4a.5.5 0 0 1 0 .97l-5.5 1.4a2 2 0 0 0-1.44 1.44l-1.4 5.5a.5.5 0 0 1-.97 0Z"/><path d="M20 3v4"/><path d="M22 5h-4"/>',
   tag:
     '<path d="M12.59 2.59A2 2 0 0 0 11.17 2H4a2 2 0 0 0-2 2v7.17a2 2 0 0 0 .59 1.41l8.7 8.7a2.43 2.43 0 0 0 3.42 0l6.58-6.58a2.43 2.43 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r="1.2"/>',
+  share:
+    '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>',
+  save:
+    '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>',
 };
 
 export function icon(name: keyof typeof PATHS | string, size = 22): SVGElement {
