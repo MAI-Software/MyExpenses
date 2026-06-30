@@ -322,19 +322,22 @@ function viewCapturar(): HTMLElement {
   );
   countUp(amt, monthTotal, cur);
 
-  // ----- reparto del mes (donut) + tope global -----
-  if (monthExp.length > 0) {
-    wrap.append(
-      el("div", { class: "card chart-card" }, [
-        el("div", { class: "section-title" }, ["Reparto del mes"]),
-        donut(catSegments(monthExp), {
-          size: 176, thickness: 20,
-          centerLabel: money(monthTotal, cur), centerSub: MONTHS[m],
-          fmt: (v) => money(v, cur),
-        }),
-      ])
+  // ----- reparto del mes (donut, siempre visible) + tope global -----
+  const chartCard = el("div", { class: "card chart-card" }, [
+    el("div", { class: "section-title" }, ["Reparto del mes"]),
+    donut(catSegments(monthExp), {
+      size: 176, thickness: 20,
+      centerLabel: money(monthTotal, cur),
+      centerSub: monthExp.length ? MONTHS[m] : "sin gastos",
+      fmt: (v) => money(v, cur),
+    }),
+  ]);
+  if (!monthExp.length) {
+    chartCard.append(
+      el("p", { class: "muted small donut-empty-hint" }, ["Captura tu primer ticket y verás aquí el reparto por categorías."])
     );
   }
+  wrap.append(chartCard);
   if (state.budget.monthlyCap && state.budget.monthlyCap > 0) {
     wrap.append(
       el("div", { class: "card" }, [
@@ -663,19 +666,19 @@ function viewEstrategia(): HTMLElement {
   const monthTotal = monthExp.reduce((s, e) => s + e.total, 0);
   const now = new Date();
 
-  // donut del mes
+  // donut del mes (siempre visible)
   const chartCard = el("div", { class: "card chart-card" });
   chartCard.append(el("h3", {}, [`Gasto de ${MONTHS[now.getMonth()]}`]));
-  if (monthExp.length) {
-    chartCard.append(
-      donut(catSegments(monthExp), {
-        size: 200, thickness: 24,
-        centerLabel: money(monthTotal, cur), centerSub: "este mes",
-        fmt: (v) => money(v, cur),
-      })
-    );
-  } else {
-    chartCard.append(el("p", { class: "muted small" }, ["Sin gastos este mes todavía. Captura un ticket para ver el reparto."]));
+  chartCard.append(
+    donut(catSegments(monthExp), {
+      size: 200, thickness: 24,
+      centerLabel: money(monthTotal, cur),
+      centerSub: monthExp.length ? "este mes" : "sin gastos",
+      fmt: (v) => money(v, cur),
+    })
+  );
+  if (!monthExp.length) {
+    chartCard.append(el("p", { class: "muted small donut-empty-hint" }, ["Sin gastos este mes todavía. Captura un ticket para ver el reparto."]));
   }
   wrap.append(chartCard);
 

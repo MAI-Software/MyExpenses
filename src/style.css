@@ -316,6 +316,7 @@ select.field { appearance: none; }
 }
 .link-btn:hover { background: var(--surface); }
 .recent-hint { text-align: center; padding: 18px 0 4px; }
+.donut-empty-hint { text-align: center; margin: 8px 0 0; }
 
 /* ---------- banner de instalación ---------- */
 .install-card {
