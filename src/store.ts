@@ -1,10 +1,11 @@
-import type { Budget, Expense, Recurring, Settings } from "./types";
+import type { Budget, CustomCategory, Expense, Recurring, Settings } from "./types";
 
 const KEY = "myexpenses.v1";
 const BKEY = "myexpenses.budget.v1";
 const RKEY = "myexpenses.recurring.v1";
 const SKEY = "myexpenses.settings.v1";
 const NKEY = "myexpenses.notified.v1";
+const CCKEY = "myexpenses.categories.v1";
 
 export function loadExpenses(): Expense[] {
   try {
@@ -95,4 +96,17 @@ export function loadNotified(): string[] {
 }
 export function saveNotified(keys: string[]): void {
   localStorage.setItem(NKEY, JSON.stringify(keys.slice(-200)));
+}
+
+// ---------- categorías personalizadas ----------
+export function loadCustomCategories(): CustomCategory[] {
+  try {
+    const arr = JSON.parse(localStorage.getItem(CCKEY) ?? "[]") as CustomCategory[];
+    return Array.isArray(arr) ? arr.filter((c) => c && typeof c.name === "string") : [];
+  } catch {
+    return [];
+  }
+}
+export function saveCustomCategories(list: CustomCategory[]): void {
+  localStorage.setItem(CCKEY, JSON.stringify(list));
 }

@@ -1,4 +1,5 @@
 import type { Category } from "./types";
+import { loadCustomCategories } from "./store";
 
 // Iconos SVG (estilo Lucide, MIT) — stroke currentColor, sin emojis.
 const PATHS: Record<string, string> = {
@@ -52,6 +53,10 @@ const PATHS: Record<string, string> = {
     '<polyline points="20 6 9 17 4 12"/>',
   alert:
     '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  sparkles:
+    '<path d="M9.94 14.06A2 2 0 0 0 8.5 12.6l-5.5-1.4a.5.5 0 0 1 0-.97l5.5-1.4A2 2 0 0 0 9.94 7.4l1.4-5.5a.5.5 0 0 1 .97 0l1.4 5.5a2 2 0 0 0 1.44 1.44l5.5 1.4a.5.5 0 0 1 0 .97l-5.5 1.4a2 2 0 0 0-1.44 1.44l-1.4 5.5a.5.5 0 0 1-.97 0Z"/><path d="M20 3v4"/><path d="M22 5h-4"/>',
+  tag:
+    '<path d="M12.59 2.59A2 2 0 0 0 11.17 2H4a2 2 0 0 0-2 2v7.17a2 2 0 0 0 .59 1.41l8.7 8.7a2.43 2.43 0 0 0 3.42 0l6.58-6.58a2.43 2.43 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r="1.2"/>',
 };
 
 export function icon(name: keyof typeof PATHS | string, size = 22): SVGElement {
@@ -70,7 +75,7 @@ export function icon(name: keyof typeof PATHS | string, size = 22): SVGElement {
   return svg;
 }
 
-export const CATEGORY_ICON: Record<Category, string> = {
+export const CATEGORY_ICON: Record<string, string> = {
   "Alimentación": "cart",
   "Restauración": "utensils",
   "Comida a domicilio": "bike",
@@ -78,7 +83,15 @@ export const CATEGORY_ICON: Record<Category, string> = {
   "Compras": "bag",
   "Salud": "pill",
   "Ocio": "film",
+  "Caprichos": "sparkles",
   "Hogar": "home",
   "Servicios": "file",
   "Otros": "package",
 };
+
+/** Icono de una categoría: integrada → personalizada → "tag" por defecto. */
+export function categoryIcon(cat: Category): string {
+  if (CATEGORY_ICON[cat]) return CATEGORY_ICON[cat];
+  const c = loadCustomCategories().find((x) => x.name === cat);
+  return c?.icon ?? "tag";
+}

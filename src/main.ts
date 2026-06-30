@@ -1,6 +1,5 @@
 import "./style.css";
 import {
-  CATEGORIES,
   type Budget,
   type Category,
   type Expense,
@@ -9,19 +8,21 @@ import {
   type Recurring,
   type Settings,
 } from "./types";
-import { CATEGORY_COLORS } from "./classify";
-import { icon, CATEGORY_ICON } from "./icons";
+import { categoryColor, allCategories } from "./classify";
+import { icon, categoryIcon } from "./icons";
 import { runOcr } from "./ocr";
 import { parseReceipt } from "./parser";
 import {
   addExpense,
   deleteExpense,
   loadBudget,
+  loadCustomCategories,
   loadExpenses,
   loadRecurring,
   loadSettings,
   newId,
   saveBudget,
+  saveCustomCategories,
   saveRecurring,
   saveSettings,
 } from "./store";
@@ -124,7 +125,7 @@ function expensesInMonth(prefix: string): Expense[] {
 function catSegments(list: Expense[]): DonutSegment[] {
   const by = new Map<Category, number>();
   for (const e of list) by.set(e.category, (by.get(e.category) ?? 0) + e.total);
-  return [...by.entries()].map(([c, v]) => ({ label: c, value: v, color: CATEGORY_COLORS[c] }));
+  return [...by.entries()].map(([c, v]) => ({ label: c, value: v, color: categoryColor(c) }));
 }
 
 // Barra de progreso de un tope de gasto, con estados ok / cerca / pasado.
@@ -362,7 +363,7 @@ function reviewForm(r: ParsedReceipt): HTMLElement {
   const note = el("input", { class: "field", value: "", placeholder: "Nota (opcional)" });
 
   const cat = el("select", { class: "field" });
-  for (const c of CATEGORIES) {
+  for (const c of allCategories()) {
     const o = el("option", { value: c }, [c]);
     if (c === r.category) o.selected = true;
     cat.append(o);
@@ -457,7 +458,7 @@ function viewGastos(): HTMLElement {
   [...byCat.entries()].sort((a, b) => b[1] - a[1]).forEach(([c, v]) => {
     chips.append(
       el("span", { class: "chip" }, [
-        el("span", { class: "dot", style: `color:${CATEGORY_COLORS[c]};background:${CATEGORY_COLORS[c]}` }),
+        el("span", { class: "dot", style: `color:${categoryColor(c)};background:${categoryColor(c)}` }),
         `${c} · ${money(v, cur)}`,
       ])
     );
@@ -484,9 +485,9 @@ function viewGastos(): HTMLElement {
 
 // Tarjeta de gasto reutilizable (Gastos e Historial).
 function expenseRow(e: Expense, i: number): HTMLElement {
-  const color = CATEGORY_COLORS[e.category];
+  const color = categoryColor(e.category);
   const row = el("div", { class: "expense", style: `--cat:${color};animation-delay:${i * 0.04}s` }, [
-    el("div", { class: "exp-ico" }, [icon(CATEGORY_ICON[e.category], 20)]),
+    el("div", { class: "exp-ico" }, [icon(categoryIcon(e.category), 20)]),
     el("div", { class: "expense-main" }, [
       el("div", { class: "expense-merchant" }, [e.merchant]),
       el("div", { class: "expense-meta" }, [`${e.date} · ${e.category}`]),
@@ -622,6 +623,7 @@ function viewEstrategia(): HTMLElement {
 
   wrap.append(capsCard(monthExp, monthTotal, cur));
   wrap.append(recurringCard(cur));
+  wrap.append(categoriesCard());
   wrap.append(notificationsCard());
   return wrap;
 }
@@ -668,7 +670,7 @@ function capsCard(monthExp: Expense[], monthTotal: number, cur: string): HTMLEle
 
   // añadir tope de categoría
   const catSel = el("select", { class: "field" });
-  for (const c of CATEGORIES) {
+  for (const c of allCategories()) {
     const o = el("option", { value: c }, [c]);
     if (c === "Comida a domicilio") o.selected = true;
     catSel.append(o);
@@ -692,7 +694,7 @@ function capsCard(monthExp: Expense[], monthTotal: number, cur: string): HTMLEle
 }
 
 function recurringRow(r: Recurring, i: number): HTMLElement {
-  const color = CATEGORY_COLORS[r.category];
+  const color = categoryColor(r.category);
   const due = nextChargeDate(r);
   const d = daysUntil(due);
   const soon = d <= state.settings.notifyDaysBefore;
@@ -700,7 +702,7 @@ function recurringRow(r: Recurring, i: number): HTMLElement {
   const freqLabel = r.frequency === "monthly" ? "mensual" : "anual";
 
   const row = el("div", { class: "expense rec" + (r.active ? "" : " off"), style: `--cat:${color};animation-delay:${i * 0.04}s` }, [
-    el("div", { class: "exp-ico" }, [icon(CATEGORY_ICON[r.category], 20)]),
+    el("div", { class: "exp-ico" }, [icon(categoryIcon(r.category), 20)]),
     el("div", { class: "expense-main" }, [
       el("div", { class: "expense-merchant" }, [r.name]),
       el("div", { class: "expense-meta" }, [
@@ -761,7 +763,7 @@ function recurringCard(cur: string): HTMLElement {
   const amount = el("input", { class: "field", type: "number", inputmode: "decimal", step: "0.01", min: "0", placeholder: "Importe €" });
   amount.addEventListener("input", () => amount.classList.remove("invalid"));
   const catSel = el("select", { class: "field" });
-  for (const c of CATEGORIES) {
+  for (const c of allCategories()) {
     const o = el("option", { value: c }, [c]);
     if (c === "Ocio") o.selected = true;
     catSel.append(o);
@@ -800,6 +802,64 @@ function recurringCard(cur: string): HTMLElement {
       labeled("Categoría", catSel), labeled("Frecuencia", freq),
       labeled("Día del mes", day), monthField,
     ]),
+    el("div", { class: "actions-row end" }, [add])
+  );
+  return card;
+}
+
+function categoriesCard(): HTMLElement {
+  const card = el("div", { class: "card" });
+  card.append(el("h3", {}, ["Mis categorías"]));
+  card.append(el("p", { class: "muted small" }, ["Crea categorías propias para clasificar tus gastos a tu manera."]));
+
+  const customs = loadCustomCategories();
+  if (customs.length) {
+    const list = el("div", { class: "cat-list" });
+    customs.forEach((c) => {
+      const rowEl = el("div", { class: "cat-row" }, [
+        el("span", { class: "cat-swatch", style: `background:${c.color}` }),
+        el("span", { class: "cat-name" }, [c.name]),
+      ]);
+      const rm = el("button", { class: "link-btn danger", "aria-label": `Eliminar categoría ${c.name}` }, ["Eliminar"]);
+      rm.addEventListener("click", () => {
+        saveCustomCategories(loadCustomCategories().filter((x) => x.name !== c.name));
+        render();
+      });
+      rowEl.append(rm);
+      list.append(rowEl);
+    });
+    card.append(list);
+  } else {
+    card.append(el("p", { class: "muted small recent-hint" }, ["Aún no has creado categorías propias."]));
+  }
+
+  // alta de categoría
+  const name = el("input", { class: "field", placeholder: "Nombre (p.ej. Mascota)" });
+  name.addEventListener("input", () => name.classList.remove("invalid"));
+  const color = el("input", { class: "field color", type: "color", value: "#7dd3fc" });
+  const err = el("span", { class: "field-error", role: "alert" }, [""]);
+  err.style.display = "none";
+
+  const add = el("button", { class: "btn btn-ghost" }, [el("span", { class: "b-ico" }, [icon("plus", 18)]), "Añadir categoría"]);
+  add.addEventListener("click", () => {
+    const nm = name.value.trim();
+    if (!nm) {
+      err.textContent = "Escribe un nombre."; err.style.display = "block";
+      name.classList.add("invalid"); name.focus(); return;
+    }
+    if (allCategories().some((c) => c.toLowerCase() === nm.toLowerCase())) {
+      err.textContent = "Ya existe una categoría con ese nombre."; err.style.display = "block";
+      name.classList.add("invalid"); name.focus(); return;
+    }
+    const list = loadCustomCategories();
+    list.push({ name: nm, color: color.value, icon: "tag" });
+    saveCustomCategories(list);
+    render();
+  });
+
+  card.append(
+    el("div", { class: "cat-add" }, [labeled("Nombre", name), labeled("Color", color)]),
+    err,
     el("div", { class: "actions-row end" }, [add])
   );
   return card;

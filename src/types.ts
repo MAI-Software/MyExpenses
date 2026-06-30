@@ -6,12 +6,23 @@ export const CATEGORIES = [
   "Compras",
   "Salud",
   "Ocio",
+  "Caprichos",
   "Hogar",
   "Servicios",
   "Otros",
 ] as const;
 
-export type Category = (typeof CATEGORIES)[number];
+export type BuiltinCategory = (typeof CATEGORIES)[number];
+
+/** Categoría: integrada o personalizada (creada por el usuario). */
+export type Category = string;
+
+/** Categoría personalizada creada por el usuario. */
+export interface CustomCategory {
+  name: string;
+  color: string;
+  icon?: string;
+}
 
 export type Frequency = "monthly" | "yearly";
 

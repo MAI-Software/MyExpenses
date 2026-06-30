@@ -1,4 +1,5 @@
-import type { Category } from "./types";
+import { CATEGORIES, type Category } from "./types";
+import { loadCustomCategories } from "./store";
 
 // Reglas por palabra clave. Se evalúa sobre comercio + texto OCR en minúsculas.
 // Primera categoría que coincida gana (orden = prioridad).
@@ -78,10 +79,19 @@ const RULES: { category: Category; keywords: string[] }[] = [
       "seguro", "banco", "comision", "comisión", "suscripcion", "suscripción",
     ],
   },
+  {
+    // Baja prioridad: caprichos/antojos (no roba compras de super, va al final).
+    category: "Caprichos",
+    keywords: [
+      "golosinas", "chuches", "chucherias", "chucherías", "gominolas", "helado",
+      "heladeria", "heladería", "dulces", "candy", "kiosco", "kiosko",
+      "pasteleria", "pastelería", "bombones",
+    ],
+  },
 ];
 
 // Color suave por categoría (paleta tenue, coherente con la UI futurista).
-export const CATEGORY_COLORS: Record<Category, string> = {
+export const CATEGORY_COLORS: Record<string, string> = {
   "Alimentación": "#5eead4",
   "Restauración": "#f5a97f",
   "Comida a domicilio": "#ed8796",
@@ -89,10 +99,44 @@ export const CATEGORY_COLORS: Record<Category, string> = {
   "Compras": "#c6a0f6",
   "Salud": "#a6da95",
   "Ocio": "#f5bde6",
+  "Caprichos": "#f6c177",
   "Hogar": "#eed49f",
   "Servicios": "#91d7e3",
   "Otros": "#939ab7",
 };
+
+// Paleta de reserva para categorías personalizadas sin color asignado.
+const FALLBACK_PALETTE = [
+  "#7dd3fc", "#fca5a5", "#fcd34d", "#a7f3d0",
+  "#c4b5fd", "#f9a8d4", "#fdba74", "#94a3b8",
+];
+
+function hashStr(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+/** Color de una categoría: integrada → personalizada → reserva determinista. */
+export function categoryColor(cat: Category): string {
+  if (CATEGORY_COLORS[cat]) return CATEGORY_COLORS[cat];
+  const c = loadCustomCategories().find((x) => x.name === cat);
+  if (c?.color) return c.color;
+  return FALLBACK_PALETTE[hashStr(cat) % FALLBACK_PALETTE.length];
+}
+
+/** Lista completa de categorías (integradas + personalizadas), "Otros" al final. */
+export function allCategories(): string[] {
+  const custom = loadCustomCategories().map((c) => c.name);
+  const merged = [...CATEGORIES.filter((c) => c !== "Otros"), ...custom, "Otros"];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const c of merged) {
+    const key = c.toLowerCase();
+    if (!seen.has(key)) { seen.add(key); out.push(c); }
+  }
+  return out;
+}
 
 export function classify(merchant: string, rawText: string): Category {
   const hay = `${merchant}\n${rawText}`.toLowerCase();
