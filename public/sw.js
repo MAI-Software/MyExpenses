@@ -1,6 +1,6 @@
 // Service worker mínimo: precache del shell + cache-first para estáticos.
 // Vite cambia los nombres con hash en cada build, así que cacheamos en runtime.
-const CACHE = "myexpenses-v3";
+const CACHE = "myexpenses-v4";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", (e) => {
@@ -35,7 +35,11 @@ self.addEventListener("fetch", (e) => {
     return;
   }
 
-  // cache-first para assets (hasheados/inmutables) y CDN de OCR.
+  // Solo cacheamos recursos propios (same-origin). Lo de terceros (Google,
+  // CDN de Tesseract) pasa directo a red, sin guardarse en nuestra caché.
+  if (new URL(req.url).origin !== self.location.origin) return;
+
+  // cache-first para assets propios (hasheados/inmutables).
   e.respondWith(
     caches.match(req).then((hit) => {
       if (hit) return hit;
