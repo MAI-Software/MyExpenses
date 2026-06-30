@@ -149,6 +149,24 @@ function countUp(node: HTMLElement, to: number, currency: string) {
   requestAnimationFrame(step);
 }
 
+// Recarga TODO el estado desde el almacenamiento (safeguard ante cualquier
+// desincronía: import, otra pestaña, cambios externos…) y refresca la vista.
+function reloadState(): void {
+  state.expenses = loadExpenses();
+  state.budget = loadBudget();
+  state.recurring = loadRecurring();
+  state.settings = loadSettings();
+}
+
+function refreshButton(): HTMLElement {
+  const b = el("button", { class: "icon-btn refresh", "aria-label": "Actualizar", title: "Actualizar" }, [icon("repeat", 18)]);
+  b.addEventListener("click", () => {
+    reloadState();
+    render();
+  });
+  return b;
+}
+
 function ymPrefix(d = new Date()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
@@ -341,7 +359,7 @@ function viewCapturar(): HTMLElement {
 
   // ----- reparto del mes (donut, siempre visible) + tope global -----
   const chartCard = el("div", { class: "card chart-card" }, [
-    el("div", { class: "section-title" }, ["Reparto del mes"]),
+    el("div", { class: "chart-head" }, [el("div", { class: "section-title" }, ["Reparto del mes"]), refreshButton()]),
     donut(catSegments(monthExp), {
       size: 176, thickness: 20,
       centerLabel: money(monthTotal, cur),
@@ -636,7 +654,7 @@ function viewHistorial(): HTMLElement {
   if (ofYear.length) {
     wrap.append(
       el("div", { class: "card chart-card" }, [
-        el("div", { class: "section-title" }, [`Reparto de ${year}`]),
+        el("div", { class: "chart-head" }, [el("div", { class: "section-title" }, [`Reparto de ${year}`]), refreshButton()]),
         donut(catSegments(ofYear), {
           size: 200, thickness: 24,
           centerLabel: money(yearTotal, cur), centerSub: String(year),
@@ -685,7 +703,7 @@ function viewEstrategia(): HTMLElement {
 
   // donut del mes (siempre visible)
   const chartCard = el("div", { class: "card chart-card" });
-  chartCard.append(el("h3", {}, [`Gasto de ${MONTHS[now.getMonth()]}`]));
+  chartCard.append(el("div", { class: "chart-head" }, [el("h3", {}, [`Gasto de ${MONTHS[now.getMonth()]}`]), refreshButton()]));
   chartCard.append(
     donut(catSegments(monthExp), {
       size: 200, thickness: 24,
@@ -1012,7 +1030,7 @@ function importBackup(data: any): { exp: number; cat: number; rec: number } {
 function backupCard(): HTMLElement {
   const card = el("div", { class: "card" });
   card.append(el("div", { class: "noti-head" }, [el("span", { class: "noti-ico" }, [icon("save", 20)]), el("h3", {}, ["Copia de seguridad"])]));
-  card.append(el("p", { class: "muted small" }, ["Sin conexión ni Google: guarda o comparte un archivo con todos tus gastos, e impórtalo en otro móvil (se fusiona, no se borra nada)."]));
+  card.append(el("p", { class: "muted small" }, ["Sin Google: comparte el archivo de tus gastos con tu pareja (así la invitas) e importa el suyo para añadir lo que registró ella. Se fusiona, no se borra nada."]));
 
   const status = el("p", { class: "muted small" }, [backupMsg]);
 
