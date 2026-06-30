@@ -75,6 +75,25 @@ const state: State = {
 
 const app = document.getElementById("app")!;
 
+// ---------- instalación PWA ----------
+let deferredInstallPrompt: any = null;
+
+function isStandalone(): boolean {
+  return window.matchMedia("(display-mode: standalone)").matches || (navigator as any).standalone === true;
+}
+function isIOS(): boolean {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  if (state.tab === "capturar") render();
+});
+window.addEventListener("appinstalled", () => {
+  deferredInstallPrompt = null;
+  render();
+});
+
 // ---------- helpers DOM ----------
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -214,6 +233,42 @@ function saveReview(r: ParsedReceipt, form: {
   render();
 }
 
+// Banner de instalación: solo en navegador (no cuando ya está instalada).
+function installCard(): HTMLElement | null {
+  if (isStandalone()) return null;
+  const card = el("div", { class: "install-card" });
+  card.append(
+    el("div", { class: "install-ico" }, [icon("download", 22)]),
+    el("div", { class: "install-txt" }, [
+      el("strong", {}, ["Instala MyExpenses"]),
+      el("span", { class: "muted small" }, ["Añádela a tu móvil para abrirla como app, tener siempre la última versión y (próximamente) sincronizar con Google Drive."]),
+    ])
+  );
+  if (deferredInstallPrompt) {
+    const b = el("button", { class: "btn btn-primary" }, ["Instalar"]);
+    b.addEventListener("click", async () => {
+      deferredInstallPrompt.prompt();
+      try { await deferredInstallPrompt.userChoice; } catch {}
+      deferredInstallPrompt = null;
+      render();
+    });
+    card.append(b);
+  } else {
+    const b = el("button", { class: "btn btn-ghost" }, ["Cómo instalar"]);
+    const help = el("p", { class: "muted small install-help" }, [
+      isIOS()
+        ? "En Safari: toca Compartir (⬆️) y luego «Añadir a pantalla de inicio»."
+        : "En el menú del navegador (⋮) elige «Instalar app» o «Añadir a pantalla de inicio».",
+    ]);
+    help.style.display = "none";
+    b.addEventListener("click", () => {
+      help.style.display = help.style.display === "none" ? "block" : "none";
+    });
+    card.append(b, help);
+  }
+  return card;
+}
+
 // ---------- views ----------
 function viewCapturar(): HTMLElement {
   const wrap = el("section", { class: "view" });
@@ -244,6 +299,9 @@ function viewCapturar(): HTMLElement {
     wrap.append(reviewForm(state.review));
     return wrap;
   }
+
+  const inst = installCard();
+  if (inst) wrap.append(inst);
 
   // ----- resumen del mes actual -----
   const now = new Date();
@@ -1018,8 +1076,24 @@ runNotifyCheck();
 // (versiones viejas). En dev, además, desregistramos cualquier SW previo.
 if ("serviceWorker" in navigator) {
   if (import.meta.env.PROD) {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {});
+    // Cuando un SW nuevo toma el control, recarga una vez para mostrar la
+    // versión nueva sin que el usuario tenga que refrescar a mano.
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (refreshing) return;
+      refreshing = true;
+      location.reload();
+    });
+    window.addEventListener("load", async () => {
+      try {
+        const reg = await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
+        // comprueba si hay actualización cada vez que se vuelve a la app
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") reg.update().catch(() => {});
+        });
+      } catch {
+        /* sin SW, la app sigue funcionando online */
+      }
     });
   } else {
     navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister()));

@@ -1,6 +1,6 @@
 // Service worker mínimo: precache del shell + cache-first para estáticos.
 // Vite cambia los nombres con hash en cada build, así que cacheamos en runtime.
-const CACHE = "myexpenses-v2";
+const CACHE = "myexpenses-v3";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", (e) => {
