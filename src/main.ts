@@ -29,6 +29,17 @@ import {
 import { exportToXlsx } from "./exportXlsx";
 import { donut, type DonutSegment } from "./donut";
 import {
+  connect as driveConnect,
+  disconnect as driveDisconnect,
+  driveConfigured,
+  isConnected as driveConnected,
+  pickExisting as drivePick,
+  pickerAvailable,
+  pushExpenses as drivePush,
+  shareWith as driveShare,
+  sheetUrl,
+} from "./drive";
+import {
   checkAndNotify,
   daysUntil,
   nextChargeDate,
@@ -685,6 +696,7 @@ function viewEstrategia(): HTMLElement {
   wrap.append(capsCard(monthExp, monthTotal, cur));
   wrap.append(recurringCard(cur));
   wrap.append(categoriesCard());
+  wrap.append(driveCard());
   wrap.append(notificationsCard());
   return wrap;
 }
@@ -923,6 +935,108 @@ function categoriesCard(): HTMLElement {
     err,
     el("div", { class: "actions-row end" }, [add])
   );
+  return card;
+}
+
+function driveCard(): HTMLElement {
+  const card = el("div", { class: "card" });
+  card.append(el("div", { class: "noti-head" }, [el("span", { class: "noti-ico" }, [icon("upload", 20)]), el("h3", {}, ["Google Drive"])]));
+
+  if (!driveConfigured()) {
+    card.append(el("p", { class: "muted small" }, [
+      "Sincronización con Google Drive pendiente de configurar (falta el Client ID de Google en src/drive.ts — ver README).",
+    ]));
+    return card;
+  }
+
+  const status = el("p", { class: "muted small drive-status" }, [""]);
+
+  if (!driveConnected()) {
+    card.append(el("p", { class: "muted small" }, ["Conecta tu cuenta para guardar tus gastos en una hoja de TU Drive, abrir un Excel existente o compartirlo."]));
+    const b = el("button", { class: "btn btn-primary" }, [el("span", { class: "b-ico" }, [icon("upload", 18)]), "Conectar Google Drive"]);
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      status.textContent = "Conectando…";
+      try {
+        await driveConnect();
+        render();
+      } catch (e: any) {
+        status.textContent = "No se pudo conectar: " + (e?.message || e);
+        b.disabled = false;
+      }
+    });
+    card.append(b, status);
+    return card;
+  }
+
+  // conectado
+  card.append(el("p", { class: "muted small" }, ["Conectado. Tus gastos se guardan en tu propia hoja de Google."]));
+
+  const saveBtn = el("button", { class: "btn btn-primary" }, [el("span", { class: "b-ico" }, [icon("upload", 18)]), "Guardar gastos en Drive"]);
+  saveBtn.addEventListener("click", async () => {
+    saveBtn.disabled = true;
+    status.textContent = "Guardando…";
+    try {
+      const n = await drivePush(state.expenses);
+      status.textContent = `Guardados ${n} gastos en tu hoja de Drive.`;
+      render();
+    } catch (e: any) {
+      status.textContent = "Error al guardar: " + (e?.message || e);
+    }
+    saveBtn.disabled = false;
+  });
+  const actions = el("div", { class: "actions-col" }, [saveBtn]);
+
+  const url = sheetUrl();
+  if (url) {
+    actions.append(el("a", { class: "btn btn-ghost", href: url, target: "_blank", rel: "noopener" }, ["Abrir mi hoja en Drive"]));
+  }
+  if (pickerAvailable()) {
+    const pick = el("button", { class: "btn btn-ghost" }, ["Usar un Excel/Hoja existente"]);
+    pick.addEventListener("click", async () => {
+      status.textContent = "Abriendo selector…";
+      try {
+        const id = await drivePick();
+        status.textContent = id ? "Hoja vinculada." : "Selección cancelada.";
+        render();
+      } catch (e: any) {
+        status.textContent = "Error: " + (e?.message || e);
+      }
+    });
+    actions.append(pick);
+  }
+  card.append(actions);
+
+  // invitar a un tercero
+  const email = el("input", { class: "field", type: "email", placeholder: "correo@ejemplo.com" });
+  email.addEventListener("input", () => email.classList.remove("invalid"));
+  const shareBtn = el("button", { class: "btn btn-ghost" }, ["Invitar como editor"]);
+  shareBtn.addEventListener("click", async () => {
+    const v = email.value.trim();
+    if (!v) { email.classList.add("invalid"); email.focus(); return; }
+    shareBtn.disabled = true;
+    status.textContent = "Compartiendo…";
+    try {
+      await driveShare(v, "writer");
+      status.textContent = `Invitado ${v} a tu hoja.`;
+      email.value = "";
+    } catch (e: any) {
+      status.textContent = "Error al compartir: " + (e?.message || e);
+    }
+    shareBtn.disabled = false;
+  });
+  card.append(
+    el("div", { class: "section-title" }, ["Invitar a un tercero"]),
+    el("div", { class: "cap-add" }, [labeled("Email", email)]),
+    el("div", { class: "actions-row end" }, [shareBtn])
+  );
+
+  const dc = el("button", { class: "link-btn danger" }, ["Desconectar"]);
+  dc.addEventListener("click", () => {
+    driveDisconnect();
+    render();
+  });
+  card.append(status, el("div", { class: "actions-row end" }, [dc]));
   return card;
 }
 
