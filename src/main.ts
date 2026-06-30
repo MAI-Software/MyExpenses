@@ -23,6 +23,7 @@ import {
   newId,
   saveBudget,
   saveCustomCategories,
+  saveExpenses,
   saveRecurring,
   saveSettings,
 } from "./store";
@@ -30,14 +31,18 @@ import { exportToXlsx } from "./exportXlsx";
 import { donut, type DonutSegment } from "./donut";
 import {
   connect as driveConnect,
+  consumePlanFromHash,
+  createPlan,
   disconnect as driveDisconnect,
   driveConfigured,
+  getSheetId,
+  inviteUrl,
   isConnected as driveConnected,
-  pickExisting as drivePick,
-  pickerAvailable,
-  pushExpenses as drivePush,
+  setSheetId,
+  shareAnyoneWithLink,
   shareWith as driveShare,
   sheetUrl,
+  syncExpenses,
 } from "./drive";
 import {
   checkAndNotify,
@@ -696,7 +701,7 @@ function viewEstrategia(): HTMLElement {
   wrap.append(capsCard(monthExp, monthTotal, cur));
   wrap.append(recurringCard(cur));
   wrap.append(categoriesCard());
-  wrap.append(driveCard());
+  wrap.append(planCard());
   wrap.append(notificationsCard());
   return wrap;
 }
@@ -938,27 +943,51 @@ function categoriesCard(): HTMLElement {
   return card;
 }
 
-function driveCard(): HTMLElement {
+// Mezcla gastos bajados del plan en el estado local (sin duplicar por id).
+function mergeExpenses(pulled: Expense[]): number {
+  if (!pulled.length) return 0;
+  const have = new Set(state.expenses.map((e) => e.id));
+  const add = pulled.filter((e) => !have.has(e.id));
+  if (add.length) {
+    state.expenses = [...add, ...state.expenses].sort((a, b) => b.date.localeCompare(a.date));
+    saveExpenses(state.expenses);
+  }
+  return add.length;
+}
+
+function planCard(): HTMLElement {
   const card = el("div", { class: "card" });
-  card.append(el("div", { class: "noti-head" }, [el("span", { class: "noti-ico" }, [icon("upload", 20)]), el("h3", {}, ["Google Drive"])]));
+  card.append(el("div", { class: "noti-head" }, [el("span", { class: "noti-ico" }, [icon("upload", 20)]), el("h3", {}, ["Plan compartido"])]));
 
   if (!driveConfigured()) {
     card.append(el("p", { class: "muted small" }, [
-      "Sincronización con Google Drive pendiente de configurar (falta el Client ID de Google en src/drive.ts — ver README).",
+      "Plan compartido pendiente de configurar (falta el Client ID de Google en src/drive.ts — ver README).",
     ]));
     return card;
   }
 
   const status = el("p", { class: "muted small drive-status" }, [""]);
+  const hasPlan = !!getSheetId();
 
+  // No conectado
   if (!driveConnected()) {
-    card.append(el("p", { class: "muted small" }, ["Conecta tu cuenta para guardar tus gastos en una hoja de TU Drive, abrir un Excel existente o compartirlo."]));
-    const b = el("button", { class: "btn btn-primary" }, [el("span", { class: "b-ico" }, [icon("upload", 18)]), "Conectar Google Drive"]);
+    card.append(
+      el("p", { class: "muted small" }, [
+        hasPlan
+          ? "Te han invitado a un plan. Conéctate con Google para unirte y sincronizar."
+          : "Comparte un único documento con tu pareja o familia: cada uno captura desde su móvil y todo se cuadra en la misma hoja de Google.",
+      ])
+    );
+    const b = el("button", { class: "btn btn-primary" }, [el("span", { class: "b-ico" }, [icon("upload", 18)]), hasPlan ? "Conectar y unirme al plan" : "Conectar Google"]);
     b.addEventListener("click", async () => {
       b.disabled = true;
       status.textContent = "Conectando…";
       try {
         await driveConnect();
+        if (getSheetId()) {
+          const r = await syncExpenses(state.expenses);
+          mergeExpenses(r.pulled);
+        }
         render();
       } catch (e: any) {
         status.textContent = "No se pudo conectar: " + (e?.message || e);
@@ -969,74 +998,102 @@ function driveCard(): HTMLElement {
     return card;
   }
 
-  // conectado
-  card.append(el("p", { class: "muted small" }, ["Conectado. Tus gastos se guardan en tu propia hoja de Google."]));
-
-  const saveBtn = el("button", { class: "btn btn-primary" }, [el("span", { class: "b-ico" }, [icon("upload", 18)]), "Guardar gastos en Drive"]);
-  saveBtn.addEventListener("click", async () => {
-    saveBtn.disabled = true;
-    status.textContent = "Guardando…";
-    try {
-      const n = await drivePush(state.expenses);
-      status.textContent = `Guardados ${n} gastos en tu hoja de Drive.`;
-      render();
-    } catch (e: any) {
-      status.textContent = "Error al guardar: " + (e?.message || e);
-    }
-    saveBtn.disabled = false;
-  });
-  const actions = el("div", { class: "actions-col" }, [saveBtn]);
-
-  const url = sheetUrl();
-  if (url) {
-    actions.append(el("a", { class: "btn btn-ghost", href: url, target: "_blank", rel: "noopener" }, ["Abrir mi hoja en Drive"]));
-  }
-  if (pickerAvailable()) {
-    const pick = el("button", { class: "btn btn-ghost" }, ["Usar un Excel/Hoja existente"]);
-    pick.addEventListener("click", async () => {
-      status.textContent = "Abriendo selector…";
+  // Conectado, sin plan → crear
+  if (!hasPlan) {
+    card.append(el("p", { class: "muted small" }, ["Conectado. Crea el plan compartido para empezar a invitar."]));
+    const create = el("button", { class: "btn btn-primary" }, [el("span", { class: "b-ico" }, [icon("plus", 18)]), "Crear plan compartido"]);
+    create.addEventListener("click", async () => {
+      create.disabled = true;
+      status.textContent = "Creando plan…";
       try {
-        const id = await drivePick();
-        status.textContent = id ? "Hoja vinculada." : "Selección cancelada.";
+        await createPlan();
+        const r = await syncExpenses(state.expenses);
+        mergeExpenses(r.pulled);
         render();
       } catch (e: any) {
-        status.textContent = "Error: " + (e?.message || e);
+        status.textContent = "Error al crear: " + (e?.message || e);
+        create.disabled = false;
       }
     });
-    actions.append(pick);
+    const dc0 = el("button", { class: "link-btn danger" }, ["Desconectar"]);
+    dc0.addEventListener("click", () => { driveDisconnect(); render(); });
+    card.append(create, status, el("div", { class: "actions-row end" }, [dc0]));
+    return card;
   }
+
+  // Conectado y con plan activo
+  card.append(el("p", { class: "muted small" }, ["Plan activo. Tus gastos y los de los miembros se sincronizan en la misma hoja."]));
+
+  const syncBtn = el("button", { class: "btn btn-primary" }, [el("span", { class: "b-ico" }, [icon("repeat", 18)]), "Sincronizar ahora"]);
+  syncBtn.addEventListener("click", async () => {
+    syncBtn.disabled = true;
+    status.textContent = "Sincronizando…";
+    try {
+      const r = await syncExpenses(state.expenses);
+      const pulled = mergeExpenses(r.pulled);
+      status.textContent = `Sincronizado: subidos ${r.added}, bajados ${pulled}.`;
+      render();
+    } catch (e: any) {
+      status.textContent = "Error al sincronizar: " + (e?.message || e);
+      syncBtn.disabled = false;
+    }
+  });
+  const actions = el("div", { class: "actions-col" }, [syncBtn]);
+
+  const url = sheetUrl();
+  if (url) actions.append(el("a", { class: "btn btn-ghost", href: url, target: "_blank", rel: "noopener" }, ["Abrir la hoja del plan"]));
   card.append(actions);
 
-  // invitar a un tercero
+  // Invitar
+  card.append(el("div", { class: "section-title" }, ["Invitar al plan"]));
+
+  const waBtn = el("button", { class: "btn btn-ghost" }, ["Compartir por WhatsApp"]);
+  waBtn.addEventListener("click", async () => {
+    waBtn.disabled = true;
+    status.textContent = "Preparando enlace…";
+    try {
+      await shareAnyoneWithLink("writer");
+      const link = inviteUrl();
+      const msg = `Únete a nuestro plan de gastos en MyExpenses 👇\n${link}`;
+      window.open("https://wa.me/?text=" + encodeURIComponent(msg), "_blank", "noopener");
+      status.textContent = "Enlace listo. ⚠️ No lo publiques: cualquiera con el enlace puede editar.";
+    } catch (e: any) {
+      status.textContent = "Error: " + (e?.message || e);
+    }
+    waBtn.disabled = false;
+  });
+
   const email = el("input", { class: "field", type: "email", placeholder: "correo@ejemplo.com" });
   email.addEventListener("input", () => email.classList.remove("invalid"));
-  const shareBtn = el("button", { class: "btn btn-ghost" }, ["Invitar como editor"]);
+  const shareBtn = el("button", { class: "btn btn-ghost" }, ["Invitar por email"]);
   shareBtn.addEventListener("click", async () => {
     const v = email.value.trim();
     if (!v) { email.classList.add("invalid"); email.focus(); return; }
     shareBtn.disabled = true;
-    status.textContent = "Compartiendo…";
+    status.textContent = "Invitando…";
     try {
       await driveShare(v, "writer");
-      status.textContent = `Invitado ${v} a tu hoja.`;
+      status.textContent = `Invitado ${v}.`;
       email.value = "";
     } catch (e: any) {
-      status.textContent = "Error al compartir: " + (e?.message || e);
+      status.textContent = "Error al invitar: " + (e?.message || e);
     }
     shareBtn.disabled = false;
   });
+
   card.append(
-    el("div", { class: "section-title" }, ["Invitar a un tercero"]),
+    el("div", { class: "actions-col" }, [waBtn]),
     el("div", { class: "cap-add" }, [labeled("Email", email)]),
     el("div", { class: "actions-row end" }, [shareBtn])
   );
 
-  const dc = el("button", { class: "link-btn danger" }, ["Desconectar"]);
-  dc.addEventListener("click", () => {
-    driveDisconnect();
-    render();
-  });
-  card.append(status, el("div", { class: "actions-row end" }, [dc]));
+  // Salir / desconectar
+  const leave = el("button", { class: "link-btn danger" }, ["Salir del plan"]);
+  leave.addEventListener("click", () => { setSheetId(null); render(); });
+  const dc = el("button", { class: "link-btn" }, ["Desconectar"]);
+  dc.addEventListener("click", () => { driveDisconnect(); render(); });
+
+  card.append(status, el("div", { class: "actions-row end" }, [leave, dc]));
   return card;
 }
 
@@ -1183,6 +1240,15 @@ const blob = document.createElement("div");
 blob.className = "blob";
 aurora.append(blob);
 document.body.prepend(aurora);
+
+// Si se abre un enlace de invitación (#plan=ID), vincula el plan y abre Estrategia.
+// Se marca con timestamp para sobrevivir a la auto-recarga del service worker
+// (que limpiaría el hash antes de poder cambiar de pestaña).
+const JOIN_KEY = "myexpenses.joinTs";
+if (consumePlanFromHash()) sessionStorage.setItem(JOIN_KEY, String(Date.now()));
+if (Date.now() - Number(sessionStorage.getItem(JOIN_KEY) || 0) < 15000) {
+  state.tab = "estrategia";
+}
 
 render();
 

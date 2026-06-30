@@ -27,34 +27,40 @@ npm run build   # genera dist/
 3. Publicar `dist/` en GitHub Pages (rama `gh-pages` o GitHub Actions).
 4. `base` de Vite es `./` (relativa), funciona en `usuario.github.io/REPO/` sin tocar config.
 
-## Google Drive / Sheets (opcional)
+## Plan compartido (Google Sheets) — opcional
 
-Cada usuario conecta **su propia** cuenta de Google. La app solo necesita **un Client ID** (gratis, sin tarjeta) creado una vez por el dueño. Scope mínimo `drive.file` (solo los archivos que la app crea o que el usuario abre con el selector).
+Un "plan" = una hoja de Google compartida donde pareja/familia sincronizan. Cada persona conecta **su propia** cuenta. La app solo necesita **un Client ID** (gratis, sin tarjeta) creado una vez por el dueño. **Sin API key** (no se usa Picker; la unión es por enlace).
+
+Scopes: `drive.file` (crear/compartir la hoja del plan) + `spreadsheets` (leer/escribir una hoja compartida por su id al unirse por enlace). `spreadsheets` da acceso a las hojas del usuario — es el coste de la unión por enlace de un toque.
 
 ### Crear el Client ID (gratis)
 1. https://console.cloud.google.com → crea un proyecto.
 2. **APIs y servicios → Biblioteca** → habilita **Google Drive API** y **Google Sheets API**.
-3. **Pantalla de consentimiento OAuth** → tipo **Externo** → rellena nombre/email → en *Scopes* añade `.../auth/drive.file` → añade tu email como **usuario de prueba**.
+3. **Pantalla de consentimiento OAuth** → tipo **Externo** → rellena nombre/email → en *Scopes* añade `.../auth/drive.file` y `.../auth/spreadsheets` → añade tu email (y el de tu pareja) como **usuarios de prueba**.
 4. **Credenciales → Crear credenciales → ID de cliente de OAuth** → **Aplicación web**:
    - Orígenes JS autorizados: `https://mai-software.github.io` y `http://localhost:5173`
-   - (sin URI de redirección — se usa el flujo de token de Google Identity Services)
+   - (sin URI de redirección — flujo de token de Google Identity Services)
 5. Copia el **Client ID** (`...apps.googleusercontent.com`).
 
 ### Pegarlo en la app
-En [`src/drive.ts`](src/drive.ts), rellena `GOOGLE_CONFIG`:
+En [`src/drive.ts`](src/drive.ts):
 ```ts
 export const GOOGLE_CONFIG = {
   clientId: "TU_CLIENT_ID.apps.googleusercontent.com",
-  apiKey: "", // opcional: solo para el selector de archivos existentes (Picker)
 };
 ```
-`npm run build` y deploy. En **Estrategia → Google Drive** aparecerá "Conectar Google Drive".
+`npm run build` y deploy. En **Estrategia → Plan compartido** aparecerá "Conectar Google".
 
-- **apiKey (opcional):** para "Usar un Excel/Hoja existente" se usa Google Picker, que requiere una **API key** (Credenciales → Crear → Clave de API; restríngela a Picker API). Sin ella, el resto (conectar, guardar, compartir) funciona igual.
+### Cómo funciona
+- **Tú:** Conectar Google → Crear plan compartido → *Compartir por WhatsApp* (o *Invitar por email*).
+- *Compartir por WhatsApp* pone la hoja como **"cualquiera con el enlace puede editar"** y abre WhatsApp con un enlace a la app (`.../MyExpenses/#plan=ID`). ⚠️ No publiques ese enlace.
+- **Tu pareja:** toca el enlace → aterriza en la app (GitHub Pages; si no la tiene, puede instalarla) → el plan queda vinculado → Conectar Google → ya sincroniza en la misma hoja.
+- **Sincronizar** sube tus filas nuevas (por `id`) y baja las del otro. No sobrescribe.
+
 - **Aviso "app no verificada":** normal hasta pasar la verificación de Google. Para ti y pocos usuarios basta añadirlos como *usuarios de prueba*.
 
 ## Roadmap
 - [x] Fase 1: OCR + clasificación + export .xlsx local + PWA + info/privacidad
-- [x] Estrategia: donut, topes de gasto, gastos fijos, notificaciones, categorías propias
-- [~] Fase 2: Google Drive/Sheets — código listo; requiere pegar el Client ID en `src/drive.ts`
+- [x] Estrategia: donut, topes, gastos fijos, notificaciones, categorías propias
+- [~] Fase 2: Plan compartido (Google Sheets) — código listo; requiere pegar el Client ID en `src/drive.ts`
 - [ ] Fase 3: APK real (PWABuilder / TWA)
